@@ -141,6 +141,298 @@ Advantages and Limitations
 
 ```
 
+## Ring Library Design
+
+This section describes the detailed implementation of the `ring.go` lock-free ring buffer library.
+
+### Architecture Overview
+
+The library implements a **Sharded Lock-Free MPSC (Multi-Producer, Single-Consumer) Ring Buffer**. The design partitions a single large ring buffer into multiple independent shards, where each shard is itself a lock-free circular buffer. This approach dramatically reduces write contention among producers while maintaining simplicity for the single consumer.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      ShardedRing                                │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐       ┌─────────┐       │
+│  │ Shard 0 │  │ Shard 1 │  │ Shard 2 │  ...  │ Shard N │       │
+│  │ ┌─────┐ │  │ ┌─────┐ │  │ ┌─────┐ │       │ ┌─────┐ │       │
+│  │ │ buf │ │  │ │ buf │ │  │ │ buf │ │       │ │ buf │ │       │
+│  │ │ [0] │ │  │ │ [0] │ │  │ │ [0] │ │       │ │ [0] │ │       │
+│  │ │ [1] │ │  │ │ [1] │ │  │ │ [1] │ │       │ │ [1] │ │       │
+│  │ │ ... │ │  │ │ ... │ │  │ │ ... │ │       │ │ ... │ │       │
+│  │ │ [n] │ │  │ │ [n] │ │  │ │ [n] │ │       │ │ [n] │ │       │
+│  │ └─────┘ │  │ └─────┘ │  │ └─────┘ │       │ └─────┘ │       │
+│  │writePos │  │writePos │  │writePos │       │writePos │       │
+│  │readPos  │  │readPos  │  │readPos  │       │readPos  │       │
+│  └─────────┘  └─────────┘  └─────────┘       └─────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+        ▲               ▲               ▲               ▲
+        │               │               │               │
+   Producer 0      Producer 1      Producer 2      Producer N
+   (hash → 0)      (hash → 1)      (hash → 2)      (hash → N)
+
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  Single Reader  │
+                    │  (polls all     │
+                    │   shards)       │
+                    └─────────────────┘
+```
+
+### Data Structures
+
+#### Shard Structure
+
+Each shard is an independent lock-free ring buffer:
+
+```go
+type Shard struct {
+    buffer   []any      // circular buffer storage
+    size     uint64     // capacity of this shard
+    writePos uint64     // atomic: next write position (monotonically increasing)
+    readPos  uint64     // read position (only accessed by consumer)
+    _        [56]byte   // cache line padding to prevent false sharing
+}
+```
+
+**Cache Line Padding**: The padding field ensures that each shard's hot variables (`writePos`, `readPos`) reside on separate cache lines (typically 64 bytes). This prevents false sharing, where multiple CPU cores invalidate each other's caches when accessing adjacent memory locations.
+
+#### ShardedRing Structure
+
+The main ring structure manages multiple shards:
+
+```go
+type ShardedRing struct {
+    shards    []*Shard  // array of shard pointers
+    numShards uint64    // number of shards (power of 2 recommended)
+    mask      uint64    // numShards - 1, for fast modulo via bitwise AND
+}
+```
+
+### API Design
+
+#### Constructor
+
+```go
+func NewShardedRing(totalCapacity uint64, numShards uint64) *ShardedRing
+```
+
+- `totalCapacity`: Total number of items the ring can hold across all shards
+- `numShards`: Number of shards to partition the ring into (should be power of 2)
+- Each shard capacity = `totalCapacity / numShards`
+
+#### Producer Interface
+
+```go
+func (r *ShardedRing) Write(producerID uint64, value any) bool
+```
+
+- `producerID`: Unique identifier for the producer (used for shard selection)
+- `value`: The data to write into the ring
+- Returns `true` on success, `false` if the selected shard is full
+
+#### Consumer Interface
+
+```go
+func (r *ShardedRing) TryRead() (any, bool)
+```
+
+- Attempts to read one item from any shard
+- Returns the value and `true` if an item was read
+- Returns `nil` and `false` if all shards are empty
+
+```go
+func (r *ShardedRing) ReadBatch(maxItems int) []any
+```
+
+- Reads up to `maxItems` from all shards in a round-robin fashion
+- Returns a slice of items read (may be empty if ring is empty)
+- More efficient for batch processing scenarios
+
+### Implementation Details
+
+#### Write Operation (Lock-Free)
+
+The write operation uses atomic Compare-And-Swap (CAS) semantics via `atomic.AddUint64`:
+
+```go
+func (s *Shard) Write(value any) bool {
+    // Atomically claim the next write slot
+    pos := atomic.AddUint64(&s.writePos, 1) - 1
+
+    // Check for buffer overflow (write catching up to read)
+    // Note: readPos is atomically loaded since producers read it while consumer writes it
+    if pos - atomic.LoadUint64(&s.readPos) >= s.size {
+        // Ring is full - could spin-wait, return false, or handle overflow
+        atomic.AddUint64(&s.writePos, ^uint64(0)) // decrement writePos
+        return false
+    }
+
+    // Write to the slot (index wraps around using modulo)
+    idx := pos % s.size
+    s.buffer[idx] = value
+
+    return true
+}
+```
+
+**Key Points**:
+- `atomic.AddUint64` is atomic and returns the new value; subtracting 1 gives us our claimed position
+- Multiple producers may call this simultaneously; each gets a unique position
+- The modulo operation wraps the linear position into the circular buffer index
+- Overflow detection compares write position against read position
+
+#### Read Operation (Single Consumer)
+
+Since only one consumer exists, read operations require no atomic synchronization:
+
+```go
+func (s *Shard) TryRead() (any, bool) {
+    // Check if there's data to read
+    writePos := atomic.LoadUint64(&s.writePos)
+    if s.readPos >= writePos {
+        return nil, false // empty
+    }
+
+    // Read the value
+    idx := s.readPos % s.size
+    value := s.buffer[idx]
+
+    // Clear the slot (optional, helps GC for pointer types)
+    s.buffer[idx] = nil
+
+    // Advance read position
+    s.readPos++
+
+    return value, true
+}
+```
+
+**Key Points**:
+- `readPos` is not atomic because only the single consumer modifies it
+- `writePos` is loaded atomically to get a consistent view of producer progress
+- Clearing the slot helps the garbage collector reclaim referenced objects
+
+#### Shard Selection
+
+Producers are distributed across shards using a hash function:
+
+```go
+func (r *ShardedRing) selectShard(producerID uint64) *Shard {
+    // Fast modulo for power-of-2 shard counts
+    shardIdx := producerID & r.mask
+    return r.shards[shardIdx]
+}
+```
+
+Alternative selection strategies:
+- **Round-robin per producer**: Each producer maintains its own counter and cycles through shards
+- **Random selection**: `rand.Uint64() & r.mask` for load balancing
+- **Thread affinity**: Use goroutine ID (if available) for cache locality
+
+#### Consumer Polling Loop
+
+The consumer iterates through all shards to collect available data:
+
+```go
+func (r *ShardedRing) ReadBatch(maxItems int) []any {
+    result := make([]any, 0, maxItems)
+
+    // Round-robin through all shards
+    for i := uint64(0); i < r.numShards && len(result) < maxItems; i++ {
+        shard := r.shards[i]
+        for len(result) < maxItems {
+            if val, ok := shard.TryRead(); ok {
+                result = append(result, val)
+            } else {
+                break // this shard is empty
+            }
+        }
+    }
+
+    return result
+}
+```
+
+### Memory Management Integration
+
+The ring library is designed to work with `sync.Pool` for efficient memory reuse:
+
+#### Producer Side
+
+```go
+// Get buffer from pool
+buf := bufPool.Get().([]byte)
+
+// Create packet with pooled buffer
+pkt := &packet{
+    sequence: nextSeq,
+    data:     &buf,
+}
+
+// Write to ring
+ring.Write(producerID, pkt)
+```
+
+#### Consumer Side
+
+```go
+// Read from ring
+items := ring.ReadBatch(1000)
+
+for _, item := range items {
+    pkt := item.(*packet)
+
+    // Process packet...
+
+    // Return buffer to pool when done
+    bufPool.Put(*pkt.data)
+}
+```
+
+### Synchronization Strategy Summary
+
+| Operation | Synchronization | Reason |
+|-----------|-----------------|--------|
+| Write (claim slot) | `atomic.AddUint64` | Multiple producers compete for slots |
+| Write (store value) | None | Each producer writes to its own claimed slot |
+| Read (check availability) | `atomic.LoadUint64` on writePos | See latest producer progress |
+| Read (load value) | None | Single consumer, no competition |
+| Read (advance readPos) | None | Single consumer owns readPos |
+
+### Design Trade-offs
+
+#### Advantages
+
+1. **Lock-Free**: No mutex contention, predictable latency
+2. **Sharded**: Reduces CAS contention among producers proportionally to shard count
+3. **Cache-Friendly**: Padding prevents false sharing between shards
+4. **Simple Consumer**: Single-threaded consumer requires no synchronization on reads
+5. **Memory-Efficient**: Works with `sync.Pool` for zero-allocation steady-state operation
+
+#### Limitations
+
+1. **Consumer Polling Overhead**: Consumer must check all shards, latency increases with shard count
+2. **Uneven Load**: Some shards may fill faster than others depending on producer distribution
+3. **Single Consumer Only**: Design does not extend to multiple consumers without additional synchronization
+4. **Ordering**: Global ordering is not preserved; only per-shard ordering is maintained
+
+### Configuration Recommendations
+
+| Parameter | Recommendation | Rationale |
+|-----------|----------------|-----------|
+| `numShards` | Number of producers or nearest power of 2 | Minimizes per-shard contention |
+| `totalCapacity` | Expected burst size × 2 | Headroom for bursty traffic |
+| `shardCapacity` | At least 64 items | Amortize cache line overhead |
+
+### Error Handling
+
+The ring library handles edge cases:
+
+1. **Ring Full**: `Write()` returns `false`, caller decides retry/drop strategy
+2. **Ring Empty**: `TryRead()` returns `false`, consumer continues polling other shards
+3. **Overflow Detection**: Write position cannot overtake read position by more than buffer size
+
 ## Repository layout
 
 This repo contains:
@@ -169,6 +461,8 @@ The rate in Mb/s that each data generating producer will try to push the packets
 The number of data generator producers that will be generating the data being pushed into the ring.
 - ringSize
 The size of the lock free ring.
+- ringShards
+The numbers of shards for the ring.  This should be a power of x2 and the ring.go will error if it's not.
 - btreeSize
 The maxmum number of items in the btree.  The packets get put into the btree, and it will keep this many items deleting the oldest ones to maintain this size.
 - frequency

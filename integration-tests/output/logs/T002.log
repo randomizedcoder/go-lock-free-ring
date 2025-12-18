@@ -1,0 +1,27 @@
+=== Test: T002 ===
+Config: 4p×10Mb/1450b/10ms
+Command: /home/das/Downloads/go-lock-free-ring/bin/ring [-producers=4 -rate=10.00 -packetSize=1450 -frequency=10 -duration=5s -btreeSize=2000 -debugLevel=3 -statsInterval=1]
+Start: 2025-12-18T13:26:59-08:00
+End: 2025-12-18T13:27:04-08:00
+Duration: 5.005588738s
+Exit Code: 0
+
+=== STDOUT ===
+
+=== STDERR ===
+2025/12/18 13:26:59 Ring size auto-calculated: 128 (4 producers × 10.0 Mb/s, 10ms interval, 2.0x multiplier)
+2025/12/18 13:26:59 Starting: 4 producers @ 10.0 Mb/s, ring=128/4 shards, btree max=2000, consumer every 10ms
+2025/12/18 13:27:00 [stats] inserted=3452 trimmed=1452 rate=40.01 Mb/s btree=2000 ring=0/128 produced=3452 dropped=0
+2025/12/18 13:27:01 [stats] inserted=3448 trimmed=3448 rate=40.00 Mb/s btree=2000 ring=0/128 produced=6900 dropped=0
+2025/12/18 13:27:02 [stats] inserted=3448 trimmed=3448 rate=40.02 Mb/s btree=2000 ring=0/128 produced=10348 dropped=0
+2025/12/18 13:27:03 [stats] inserted=3451 trimmed=3451 rate=40.01 Mb/s btree=2000 ring=0/128 produced=13799 dropped=0
+2025/12/18 13:27:04 [stats] inserted=3445 trimmed=3445 rate=39.98 Mb/s btree=2000 ring=0/128 produced=17244 dropped=0
+2025/12/18 13:27:04 Duration 5s reached, shutting down...
+2025/12/18 13:27:04 Shutdown signal received, waiting for goroutines...
+2025/12/18 13:27:04 Clean shutdown completed in 237.959µs
+2025/12/18 13:27:04 === Final Statistics ===
+2025/12/18 13:27:04 Produced: 17244
+2025/12/18 13:27:04 Dropped:  0 (0.00%)
+2025/12/18 13:27:04 Consumed: 17244
+2025/12/18 13:27:04 Trimmed:  15244
+2025/12/18 13:27:04 BTree final size: 2000

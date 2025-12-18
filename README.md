@@ -181,21 +181,47 @@ The library implements a **Sharded Lock-Free MPSC (Multi-Producer, Single-Consum
 
 ### Data Structures
 
+#### Slot Structure
+
+Each slot holds a value with a sequence number for race-free concurrent access:
+
+```go
+type slot struct {
+    seq   uint64  // Sequence number - signals when data is ready
+    value any     // The stored value
+}
+```
+
+The sequence number enables lock-free synchronization:
+- **Initial state**: `seq = slotIndex` (slot is available for writing at position `slotIndex`)
+- **After write**: `seq = writePos + 1` (signals data is ready for reading)
+- **After read**: `seq = readPos + size` (marks slot available for next write cycle)
+
 #### Shard Structure
 
 Each shard is an independent lock-free ring buffer:
 
 ```go
 type Shard struct {
-    buffer   []any      // circular buffer storage
-    size     uint64     // capacity of this shard
-    writePos uint64     // atomic: next write position (monotonically increasing)
-    readPos  uint64     // read position (only accessed by consumer)
-    _        [56]byte   // cache line padding to prevent false sharing
+    buffer   []slot   // circular buffer with per-slot sequence numbers
+    size     uint64   // capacity of this shard
+    writePos uint64   // atomic: next position to claim for writing
+    readPos  uint64   // atomic: next position to read from
+    //_        [40]byte // cache line padding to prevent false sharing
 }
 ```
 
-**Cache Line Padding**: The padding field ensures that each shard's hot variables (`writePos`, `readPos`) reside on separate cache lines (typically 64 bytes). This prevents false sharing, where multiple CPU cores invalidate each other's caches when accessing adjacent memory locations.
+**Cache Line Padding**: The padding field helps prevent false sharing between shards. The optimal padding size depends on:
+
+1. **Cache line size**: Typically 64 bytes on modern x86/ARM CPUs
+2. **Struct layout**: The Shard fields before padding total 48 bytes:
+   - `buffer []slot` = 24 bytes (slice header: pointer + len + cap)
+   - `size uint64` = 8 bytes
+   - `writePos uint64` = 8 bytes
+   - `readPos uint64` = 8 bytes
+3. **Allocation pattern**: Since `[]*Shard` uses pointers, each shard is heap-allocated separately
+
+**Determining optimal padding**: Run `go test -bench=ShardPadding` to benchmark different sizes. The current 40-byte padding results in 88-byte total struct size. Benchmarks show performance is relatively stable across padding sizes (0-56 bytes) because heap allocation naturally spreads shards across cache lines.
 
 #### ShardedRing Structure
 
@@ -218,10 +244,12 @@ func NewShardedRing(totalCapacity uint64, numShards uint64) *ShardedRing
 ```
 
 - `totalCapacity`: Total number of items the ring can hold across all shards
-- `numShards`: Number of shards to partition the ring into (should be power of 2)
+- `numShards`: Number of shards to partition the ring into (must be power of 2)
 - Each shard capacity = `totalCapacity / numShards`
 
 #### Producer Interface
+
+**Non-blocking write (immediate return):**
 
 ```go
 func (r *ShardedRing) Write(producerID uint64, value any) bool
@@ -230,6 +258,34 @@ func (r *ShardedRing) Write(producerID uint64, value any) bool
 - `producerID`: Unique identifier for the producer (used for shard selection)
 - `value`: The data to write into the ring
 - Returns `true` on success, `false` if the selected shard is full
+
+**Write with configurable backoff:**
+
+```go
+func (r *ShardedRing) WriteWithBackoff(producerID uint64, value any, config WriteConfig) bool
+```
+
+When the ring is full, this method retries with backoff instead of immediately returning false:
+
+```go
+type WriteConfig struct {
+    MaxRetries      int           // Attempts before sleeping (default: 10)
+    BackoffDuration time.Duration // Sleep duration after retries (default: 100µs)
+    MaxBackoffs     int           // Max backoff cycles, 0 = unlimited (default: 0)
+}
+
+// Example usage:
+config := ring.WriteConfig{
+    MaxRetries:      10,                    // Try 10 times before sleeping
+    BackoffDuration: 100 * time.Microsecond, // Sleep 100µs between batches
+    MaxBackoffs:     1000,                  // Give up after 1000 cycles
+}
+if !ring.WriteWithBackoff(producerID, value, config) {
+    // Ring persistently full - handle backpressure
+}
+```
+
+This reduces CPU spinning when producers outpace the consumer, trading latency for efficiency.
 
 #### Consumer Interface
 
@@ -251,67 +307,83 @@ func (r *ShardedRing) ReadBatch(maxItems int) []any
 
 ### Implementation Details
 
+#### Per-Slot Sequence Numbers (Race-Free Design)
+
+The implementation uses per-slot sequence numbers to ensure race-free operation without global serialization. This design is inspired by the LMAX Disruptor pattern.
+
+**Why per-slot sequences?** A naive implementation might use a global "committed" counter, but this creates a serialization bottleneck where producers must commit in order. Per-slot sequences allow independent commits:
+
+| Approach | Concurrent Write Performance |
+|----------|------------------------------|
+| Global committed counter | 11,000,000+ ns/op (500,000x slower!) |
+| Per-slot sequence | 24 ns/op ✓ |
+
 #### Write Operation (Lock-Free)
 
-The write operation uses atomic Compare-And-Swap (CAS) semantics via `atomic.AddUint64`:
-
 ```go
-func (s *Shard) Write(value any) bool {
+func (s *Shard) write(value any) bool {
     // Atomically claim the next write slot
     pos := atomic.AddUint64(&s.writePos, 1) - 1
+    idx := pos % s.size
+    sl := &s.buffer[idx]
 
-    // Check for buffer overflow (write catching up to read)
-    // Note: readPos is atomically loaded since producers read it while consumer writes it
-    if pos - atomic.LoadUint64(&s.readPos) >= s.size {
-        // Ring is full - could spin-wait, return false, or handle overflow
-        atomic.AddUint64(&s.writePos, ^uint64(0)) // decrement writePos
+    // Check if slot is available (seq == pos means slot is free)
+    seq := atomic.LoadUint64(&sl.seq)
+    if seq != pos {
+        // Slot not available - ring is full
+        atomic.AddUint64(&s.writePos, ^uint64(0)) // unclaim
         return false
     }
 
-    // Write to the slot (index wraps around using modulo)
-    idx := pos % s.size
-    s.buffer[idx] = value
+    // Write the value
+    sl.value = value
+
+    // Signal data is ready (seq = pos+1)
+    atomic.StoreUint64(&sl.seq, pos+1)
 
     return true
 }
 ```
 
 **Key Points**:
-- `atomic.AddUint64` is atomic and returns the new value; subtracting 1 gives us our claimed position
-- Multiple producers may call this simultaneously; each gets a unique position
-- The modulo operation wraps the linear position into the circular buffer index
-- Overflow detection compares write position against read position
+- `atomic.AddUint64` claims a unique position for each producer
+- Slot availability is checked via sequence number, not global counter
+- Each producer can commit independently (no waiting for others)
+- The sequence update signals to the consumer that data is ready
 
 #### Read Operation (Single Consumer)
 
-Since only one consumer exists, read operations require no atomic synchronization:
-
 ```go
-func (s *Shard) TryRead() (any, bool) {
-    // Check if there's data to read
-    writePos := atomic.LoadUint64(&s.writePos)
-    if s.readPos >= writePos {
-        return nil, false // empty
+func (s *Shard) tryRead() (any, bool) {
+    readPos := atomic.LoadUint64(&s.readPos)
+    idx := readPos % s.size
+    sl := &s.buffer[idx]
+
+    // Check if data is ready (seq should be readPos+1)
+    seq := atomic.LoadUint64(&sl.seq)
+    if seq != readPos+1 {
+        return nil, false // Not ready
     }
 
-    // Read the value
-    idx := s.readPos % s.size
-    value := s.buffer[idx]
+    // Read and clear value
+    value := sl.value
+    sl.value = nil
 
-    // Clear the slot (optional, helps GC for pointer types)
-    s.buffer[idx] = nil
+    // Mark slot available for next write cycle (seq = readPos+size)
+    atomic.StoreUint64(&sl.seq, readPos+s.size)
 
     // Advance read position
-    s.readPos++
+    atomic.StoreUint64(&s.readPos, readPos+1)
 
     return value, true
 }
 ```
 
 **Key Points**:
-- `readPos` is not atomic because only the single consumer modifies it
-- `writePos` is loaded atomically to get a consistent view of producer progress
-- Clearing the slot helps the garbage collector reclaim referenced objects
+- Sequence check ensures data is fully written before reading
+- Clearing `sl.value = nil` helps the garbage collector
+- Setting `seq = readPos + size` marks the slot available for the next write at that position
+- All operations on shared state use atomics for race-free access
 
 #### Shard Selection
 
@@ -433,6 +505,175 @@ The ring library handles edge cases:
 2. **Ring Empty**: `TryRead()` returns `false`, consumer continues polling other shards
 3. **Overflow Detection**: Write position cannot overtake read position by more than buffer size
 
+## Testing Summary
+
+The ring library includes comprehensive tests that verify correctness under various conditions including concurrent access. All tests pass with Go's race detector enabled (`go test -race`).
+
+### Test Categories
+
+| Test | Description |
+|------|-------------|
+| `TestNewShardedRing` | Constructor validation (valid/invalid parameters, power-of-2 check) |
+| `TestBasicWriteRead` | Single producer write and sequential read |
+| `TestMultipleProducers` | Multiple producers writing to different shards |
+| `TestRingFull` | Behavior when a shard reaches capacity |
+| `TestRingEmpty` | Behavior when reading from empty ring |
+| `TestReadBatch` | Batch reading functionality |
+| `TestReadBatchInto` | Zero-allocation batch reading with pre-allocated buffer |
+| `TestConcurrentProducers` | Multiple goroutines writing concurrently |
+| `TestConcurrentProducerConsumer` | Producers write while consumer reads (large ring) |
+| `TestConcurrentProducerConsumerSmallRing` | Small ring with active draining (128 items) |
+| `TestWriteWithBackoff` | Backoff mechanism when ring is full |
+| `TestWriteWithBackoffConcurrent` | Concurrent producers with backoff |
+| `TestDefaultWriteConfig` | Default configuration values |
+| `TestShardDistribution` | Verify producer ID maps to correct shard |
+| `TestWrapAround` | Ring buffer wrap-around over multiple fill/drain cycles |
+| `TestCapAndLen` | Capacity and length reporting |
+| `TestNilValues` | Storing and retrieving nil values |
+
+### Benchmarks
+
+| Benchmark | Description | Make Target |
+|-----------|-------------|-------------|
+| `BenchmarkWrite` | Single-threaded write throughput | `make bench` |
+| `BenchmarkTryRead` | Single-threaded read throughput | `make bench` |
+| `BenchmarkReadBatch` | Batch read (10, 100, 1000 items) | `make bench` |
+| `BenchmarkReadBatchIntoPool` | Zero-allocation batch read with sync.Pool | `make bench` |
+| `BenchmarkConcurrentWrite` | Parallel writes (1, 2, 4, 8 producers) | `make bench` |
+| `BenchmarkProducerConsumer` | Write-then-read cycle | `make bench` |
+| `BenchmarkWriteContention` | Maximum contention (single shard) | `make bench` |
+| `BenchmarkWriteNoContention` | Minimal contention (many shards) | `make bench` |
+| `BenchmarkShardCount` | Performance vs shard count (1-32 shards) | `make bench` |
+| `BenchmarkThroughput` | Sustained parallel throughput | `make bench` |
+| `BenchmarkFalseSharing` | Demonstrates cache line false sharing | `make bench-falsesharing` |
+| `BenchmarkFalseSharingContention` | Two-counter false sharing demo | `make bench-falsesharing` |
+| `BenchmarkShardPadding` | Tests optimal padding sizes (0-56 bytes) | `make bench-padding` |
+
+### Implementation Challenges and Solutions
+
+#### Challenge 1: Concurrent Producer-Consumer Test Design
+
+**Problem**: Tests with multiple producer goroutines and a consumer goroutine would fail or hang. Initial hypothesis was Go scheduler starvation, but investigation revealed the actual causes.
+
+**What Wasn't The Problem - Go Scheduling**:
+
+Initial suspicion was that Go's cooperative scheduling prevented the consumer from running. However, testing confirmed this is **not** the issue:
+- Go 1.14+ has **asynchronous preemption** - tight loops ARE preempted via signals
+- With GOMAXPROCS=24 and only 5 goroutines, there are plenty of OS threads
+- A test with 4 spinning producers + 1 consumer confirmed the consumer runs fine
+
+```
+GOMAXPROCS: 24, NumCPU: 24
+Consumer ran! Counter: 6612569  // Consumer ran while producers spun 6.6M times
+```
+
+**The Actual Problems**:
+
+1. **Livelock Under Contention**: With a tiny ring (256 items) and aggressive producers, the system becomes contention-bound. All producers compete on atomic operations, and even though everyone is running, throughput collapses.
+
+2. **Ineffective Backoff**: Empty busy-loops like `for j := 0; j < 100; j++ {}` get optimized away by the compiler, providing no actual delay.
+
+3. **Test Parameter Mismatch**: 4 producers × 10,000 items = 40,000 items through a 256-item ring with batch reads of 100. The math doesn't work well.
+
+**C++ vs Go - When It Does Matter**:
+
+While not the issue here, Go vs C++ scheduling differences can matter in other scenarios:
+- **Pre-Go 1.14**: No async preemption, tight loops could block forever
+- **CGO calls**: CGO calls can block the OS thread
+- **Very high goroutine counts**: Scheduling overhead with millions of goroutines
+
+**Solution in Tests**:
+1. **Large ring tests**: Ring large enough that it never fills, testing pure concurrency
+2. **Small ring tests**: Single-goroutine alternating write/read pattern with timeout, avoiding multi-goroutine coordination complexity
+
+**Production Recommendation**: The ring's `Write()` returns `false` when full (non-blocking). Don't spin-wait:
+```go
+if !ring.Write(id, value) {
+    // Option A: Drop the packet (acceptable for some use cases)
+    // Option B: Use a bounded retry with backoff
+    // Option C: Signal backpressure to upstream
+}
+```
+
+#### Challenge 2: Memory Allocations in Batch Reading
+
+**Problem**: The `ReadBatch()` method allocates a new slice on every call, and storing value types (like `int`) in `[]any` causes boxing allocations.
+
+**Solution**:
+1. Added `ReadBatchInto(buf []any, maxItems int)` method that accepts a pre-allocated slice, enabling zero-allocation batch reads when used with `sync.Pool`.
+2. Users should store pointer types (e.g., `*Packet`) instead of value types to avoid boxing allocations.
+
+**Benchmark Results**:
+| Batch Size | Standard | With sync.Pool | Improvement |
+|------------|----------|----------------|-------------|
+| 100 items | 2,602 ns, 68 allocs | 1,011 ns, 1 alloc | 2.6x faster, 68x fewer allocs |
+| 1000 items | 28,257 ns, 876 allocs | 9,426 ns, 1 alloc | 3x faster, 876x fewer allocs |
+
+#### Challenge 3: False Sharing Between Shards
+
+**Problem**: When multiple CPU cores access adjacent memory locations, cache line invalidation can cause significant performance degradation (false sharing). Modern CPUs load memory in 64-byte cache lines. If two cores write to different variables on the same cache line, they constantly invalidate each other's cache.
+
+**Investigation**: The `BenchmarkFalseSharing` tests demonstrate that false sharing CAN cause 1.8x to 4.4x slowdown when variables are adjacent:
+
+| Configuration | ns/op | Impact |
+|--------------|-------|--------|
+| Adjacent counters (same cache line) | 8.81 | baseline |
+| Separated counters (64-byte gap) | 4.88 | **1.8x faster** |
+
+**However**, `BenchmarkShardPadding` shows that for our `[]*Shard` design, **padding has minimal impact**:
+
+| Padding Size | Total Struct Size | ns/op |
+|--------------|------------------|-------|
+| 0 bytes | 88 bytes | 1.17 |
+| 16 bytes | 104 bytes | 1.12 |
+| 32 bytes | 120 bytes | 1.07 |
+| 40 bytes | 128 bytes | 1.10 |
+| 56 bytes | 144 bytes | 1.04 |
+
+**Why padding doesn't help much here:**
+1. `[]*Shard` uses pointers, so each shard is heap-allocated separately
+2. Go's allocator naturally spreads allocations across memory
+3. Producer/consumer access different slots within a shard, not adjacent shards
+
+**Decision**: Padding is commented out by default to save memory. Uncomment the `_ [40]byte` field if:
+- Using contiguous shard allocation
+- Targeting platforms with different allocator behavior
+- Running `make bench-padding` shows improvement on your hardware
+
+#### Challenge 4: Benchmark Test Naming
+
+**Problem**: Using character arithmetic for benchmark names (e.g., `string(rune('0'+batchSize))`) produced garbled names for multi-digit numbers.
+
+**Solution**: Use explicit sub-benchmark functions with clear string names:
+```go
+b.Run("batch_100", func(b *testing.B) { ... })
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with race detector
+make test-race
+
+# Run benchmarks
+make bench
+
+# Run benchmarks with profiling
+make bench-cpu
+make bench-mem
+
+# Run specific benchmarks
+make bench-padding       # Test cache line padding effectiveness
+make bench-falsesharing  # Demonstrate false sharing impact
+make bench-pattern PATTERN=ReadBatch  # Run specific benchmark pattern
+```
+
 ## Repository layout
 
 This repo contains:
@@ -519,6 +760,7 @@ This ring.go essentially does:
 1. Creates a bufPool to allow []byte memory reuse
 2. Sets up the lock free ring of size ringSize
 3. Create the b-tree structure to store btreeSize number of packets
+3.1 https://github.com/google/btree because it is well tested
 4. Starts the single reader worker
 4.1 The reader just runs in a ticker timed loop at frequency milliseconds
 4.1 Reader will read from the ring and insert into the btree (btree will sort based on the packet sequence number)

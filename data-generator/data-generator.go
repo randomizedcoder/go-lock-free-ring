@@ -1,4 +1,3 @@
-package reference
 // Package common provides shared utilities for SRT client applications.
 package common
 
@@ -45,9 +44,9 @@ type DataGenerator struct {
 
 	// High-rate optimization: time-based pacing
 	highRateMode  bool
-	intervalNanos int64     // Expected interval between packets in nanoseconds
-	startTimeNano int64     // Start time in nanoseconds (for pacing calculation)
-	packetCount   uint64    // Non-atomic, only accessed from Read()
+	intervalNanos int64  // Expected interval between packets in nanoseconds
+	startTimeNano int64  // Start time in nanoseconds (for pacing calculation)
+	packetCount   uint64 // Non-atomic, only accessed from Read()
 
 	// Statistics (atomic for thread safety)
 	packetsGenerated atomic.Uint64
@@ -296,4 +295,3 @@ func NewDataGeneratorUnlimited(ctx context.Context, payloadSize uint32) *DataGen
 		targetBitrate: 0,
 	}
 }
-

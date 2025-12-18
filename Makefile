@@ -6,7 +6,7 @@
 # Test targets
 .PHONY: test test-verbose test-race test-coverage test-cmd test-datagen test-datagen-short
 .PHONY: test-integration test-integration-smoke test-integration-standard test-integration-full test-integration-unit
-.PHONY: test-integration-profile test-integration-profile-all test-integration-profile-200mbps test-integration-report
+.PHONY: test-integration-profile test-integration-profile-all test-integration-profile-200mbps test-integration-profile-400mbps test-integration-report
 
 # Benchmark targets
 .PHONY: bench bench-short bench-cpu bench-mem bench-pattern bench-falsesharing bench-padding
@@ -73,6 +73,12 @@ test-integration-profile-all:
 # Duration: ~80s, generates HTML report
 test-integration-profile-200mbps:
 	go test -v -timeout=60m -count=1 -run "TestIntegrationWithProfiling/T003" ./integration-tests/ -args -profile=all -testset=quick -report
+
+# Profile the 8 producers × 50 Mb/s test (T004 from quick set = 400 Mb/s total)
+# Runs all 6 profile types: cpu, mem, allocs, heap, mutex, block
+# Duration: ~80s, generates HTML report
+test-integration-profile-400mbps:
+	go test -v -timeout=60m -count=1 -run "TestIntegrationWithProfiling/T004" ./integration-tests/ -args -profile=all -testset=quick -report
 
 # Generate integration test report from quick tests
 test-integration-report:
@@ -186,6 +192,7 @@ help:
 	@echo "  test-integration-profile - Run with CPU profiling (4p×10Mb)"
 	@echo "  test-integration-profile-all - Run with all profile types (4p×10Mb)"
 	@echo "  test-integration-profile-200mbps - Profile 4p×50Mb (200Mb/s)"
+	@echo "  test-integration-profile-400mbps - Profile 8p×50Mb (400Mb/s)"
 	@echo "  test-integration-report - Generate HTML report"
 	@echo ""
 	@echo "Benchmark:"

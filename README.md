@@ -1,145 +1,99 @@
 # go-lock-free-ring
 
-Simple example of a lock free ring library written in golang.
+A high-performance, lock-free, sharded MPSC (Multi-Producer, Single-Consumer) ring buffer library written in Go.
 
-ring.go is an example program using the ring library with integration tests to demonstrate the performance.
+**Key Features:**
+- Lock-free design using atomic operations (no mutexes)
+- Sharded architecture to minimize producer contention
+- Zero-allocation steady-state with `sync.Pool` integration
+- Tested up to 400 Mb/s sustained throughput
+- Comprehensive benchmarks and profiling
 
 <img src="./go-lock-free-ring.png" alt="go-lock-free-ring" width="80%" height="80%"/>
 
-## Background - Lock free rings
-There are lots of lock free rings, where Herb does a good job explaining them in this video
+## Quick Start
 
-e.g.
-CppCon 2014: Herb Sutter "Lock-Free Programming (or, Juggling Razor Blades), Part I"
-https://youtu.be/c1gO9aB9nbs?si=K2y67zBI8HGfmFHF
+### Installation
 
-## Inspiration
-
-To implment this found this blog, so I gave it a quick shot
-
-https://congdong007.github.io/2025/08/16/Lock-Free-golang/
-
-From the blog:
 ```bash
-Fundamental Concepts
-
-    Ring Buffer
-        A ring buffer (or circular buffer) is a fixed-size queue in which the write and read pointers wrap around once they reach the end of the underlying array. It is widely used in high-performance systems such as logging pipelines, network buffers, and message queues.
-
-    MPSC (Multi-Producer, Single-Consumer)
-
-        An MPSC queue allows multiple producers (writers) to insert elements concurrently, while only a single consumer (reader) retrieves elements.
-
-        Write operations must address concurrent access among producers.
-
-        Read operations are simpler, as they are performed by a single consumer thread.
-
-    Lock-Free
-        Instead of using traditional mutexes, lock-free structures rely on atomic operations (e.g., Compare-And-Swap, CAS) to ensure correctness under concurrency. This avoids lock contention, reducing latency and improving throughput.
-
-    Sharded
-        A sharded design partitions a large ring buffer into several smaller independent sub-buffers (shards). Producers are distributed across shards (e.g., by hashing or thread affinity), which minimizes contention. The consumer then sequentially or cyclically retrieves items from all shards.
-
-Operating Principles
-
-A sharded lock-free MPSC ring buffer typically operates as follows:
-
-    Initialization
-
-        The total buffer capacity is divided into N shards (e.g., 8 sub-buffers).
-
-        Each shard itself is implemented as a lock-free MPSC ring buffer.
-
-    Producer Writes (Concurrent)
-
-        Each producer selects a shard based on a hash function, producer ID, or randomized strategy.
-
-        The producer atomically advances the write pointer in that shard using CAS and writes its data.
-
-        Because writes are distributed across shards, contention is significantly reduced.
-
-    Consumer Reads (Single Thread)
-
-        The consumer iterates over all shards, checking each for available entries.
-
-        Data is retrieved by advancing the shard’s read pointer.
-
-        As only one consumer exists, no synchronization overhead is required for reading.
-
-Motivation for Sharding
-
-    Challenge with Conventional MPSC Buffers
-        In a non-sharded MPSC buffer, all producers compete on a single shared write pointer, resulting in substantial contention under high concurrency.
-
-    Benefits of Sharding
-
-        Each shard has fewer competing producers, reducing contention on its write pointer.
-
-        The single consumer can still process data deterministically by scanning all shards.
-
-        Performance gains are particularly evident when the number of producers is large relative to the consumer.
-
-Application Scenarios
-
-    High-performance logging systems (multiple threads writing logs, one thread persisting to storage).
-
-    Network servers (multiple connections producing packets, one thread aggregating and processing them).
-
-    Data acquisition systems (multiple sensors producing input, one thread consuming for analysis).
-
-Implementation Notes in Golang
-
-    In Go, the sync/atomic package is typically used for lock-free synchronization.
-    Key implementation aspects include:
-
-    Write Operation
-
-idx := atomic.AddUint64(&shard.writePos, 1) - 1
-buffer[idx % shard.size] = value
-
-    Read Operation (single-threaded, no CAS required)
-
-if shard.readPos < shard.writePos {
-    val := buffer[shard.readPos % shard.size]
-    shard.readPos++
-    return val
-}
-
-    Shard Selection
-
-shardID := hash(producerID) % numShards
-shard := shards[shardID]
-
-    Consumer Loop
-
-for {
-    for _, shard := range shards {
-        if val, ok := shard.TryRead(); ok {
-            process(val)
-        }
-    }
-}
-
-Advantages and Limitations
-
-    Advantages
-
-        Lock-free design avoids mutex contention.
-
-        Sharding reduces producer contention and increases throughput.
-
-        Single-consumer semantics simplify design and maintain order within each shard.
-
-    Limitations
-
-        The consumer must poll multiple shards, which may increase latency with many shards.
-
-        Buffer utilization may be uneven if some shards are heavily loaded while others remain idle.
-
-        The design does not extend naturally to multiple consumers.
-
-
+go get github.com/randomizedcoder/go-lock-free-ring
 ```
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "fmt"
+    ring "github.com/randomizedcoder/go-lock-free-ring"
+)
+
+func main() {
+    // Create a ring with 1024 total capacity across 4 shards
+    r, err := ring.NewShardedRing(1024, 4)
+    if err != nil {
+        panic(err)
+    }
+
+    // Producer writes (can be called from multiple goroutines)
+    producerID := uint64(0)
+    if r.Write(producerID, "hello") {
+        fmt.Println("Write successful")
+    }
+
+    // Consumer reads (single goroutine)
+    if value, ok := r.TryRead(); ok {
+        fmt.Printf("Read: %v\n", value)
+    }
+
+    // Batch read for efficiency
+    items := r.ReadBatch(100)
+    fmt.Printf("Read %d items\n", len(items))
+}
+```
+
+### Run the Example
+
+```bash
+# Clone and build
+git clone https://github.com/randomizedcoder/go-lock-free-ring.git
+cd go-lock-free-ring
+
+# Run example with 4 producers at 10 Mb/s for 5 seconds
+make run-cmd
+
+# Run with custom configuration
+make run-cmd-custom ARGS="-producers=8 -rate=50 -duration=10s"
+
+# Run tests
+make test
+
+# Run benchmarks
+make bench
+
+# Run performance profiling (400 Mb/s test)
+make test-integration-profile-400mbps
+```
+
+### Performance at a Glance
+
+| Configuration | Throughput | Memory | Allocations | Ring Contention |
+|--------------|------------|--------|-------------|-----------------|
+| 4×50 Mb/s | 200 Mb/s | 3.49 MB | 4 objects | 0% |
+| 8×50 Mb/s | 400 Mb/s | 2.29 MB | 7 objects | 0% |
+
+See [Performance Testing](#performance-testing) for detailed profiling results.
+
+---
+
+## Background
+
+Lock-free data structures use atomic operations instead of mutexes to achieve thread safety. This eliminates lock contention and provides more predictable latency, making them ideal for high-performance systems like network packet processing, logging pipelines, and message queues.
+
+For an excellent introduction to lock-free programming, see Herb Sutter's CppCon talk: [Lock-Free Programming (or, Juggling Razor Blades)](https://youtu.be/c1gO9aB9nbs).
+
+---
 
 ## Ring Library Design
 
@@ -674,142 +628,183 @@ make bench-falsesharing  # Demonstrate false sharing impact
 make bench-pattern PATTERN=ReadBatch  # Run specific benchmark pattern
 ```
 
-## Repository layout
+## Performance Testing
 
-This repo contains:
-- Ring library
-The design is this repo is primarily a library that implements the lock free ring.  The idea is this library should make it easy to create a multi producer single consumer ring.
+The integration test suite includes automated profiling to validate performance under sustained load. These tests demonstrate that the lock-free ring achieves excellent throughput with minimal resource usage.
 
-The intended reason for implementation is for reading packets at high data rates from the network, placing the packets into the lock-free ring at high speeds, and then to have a single consumer waking up every 10ms to read as many packets as it can from the ring.
+### Running Profile Tests
 
-This is ring.go and ring_test.go
+```bash
+# Quick smoke test with CPU profiling (4p×10Mb = 40 Mb/s)
+make test-integration-profile
 
-- data-generator
-In the ./data-generator/ folder is an example of a data-generator with tests, that shows how the producers will use the rate limit library to produce to the ring at the constant packets/second rate.  This was created primarily to test the packets per second code works correctly.
+# All 6 profile types on smoke test
+make test-integration-profile-all
 
-- integration-tests
-The ./integration-tests/ folder contains the code for the integration tests
+# Profile 4 producers × 50 Mb/s (200 Mb/s total)
+make test-integration-profile-200mbps
 
-- Ring example
-The ./cmd/ring/ring.go contains a main function that demonstrates how to use the ring.
-
-The ring function takes multiple cli flag arguments
-- packetSize
-The packet size in bytes.  A single []byte will be created of this size and will be populated with random data once.  The packet will be reused by all the generators as packets the generators send.
-- rate
-The rate in Mb/s that each data generating producer will try to push the packets into the ring.  This Mb/s rate will be converted in a packet per second rate by simple arithmatic.
-- producers
-The number of data generator producers that will be generating the data being pushed into the ring.
-- ringSize
-The size of the lock free ring.
-- ringShards
-The numbers of shards for the ring.  This should be a power of x2 and the ring.go will error if it's not.
-- btreeSize
-The maxmum number of items in the btree.  The packets get put into the btree, and it will keep this many items deleting the oldest ones to maintain this size.
-- frequency
-This is the frequency in milliseconds that the reader wakes up to read the packets from the ring, and insert them into the b-tree structure.
-- profileFlag
-Which profiling to enable
-- profilePath
-Where to put the pprof file
-- debugLevel
-Integer like a syslog level 0-7 for the logging level
-
-
-## Profiling
-```
-import 	"github.com/pkg/profile"
-
-	profileFlag = flag.String("profile", "", "enable profiling (cpu, mem, allocs, heap, rate, mutex, block, thread, trace)")
-	profilePath = flag.String("profilepath", ".", "directory to write profile files to")
-
-	// Setup profiling if requested
-	var p func(*profile.Profile)
-	switch *profileFlag {
-	case "cpu":
-		p = profile.CPUProfile
-	case "mem":
-		p = profile.MemProfile
-	case "allocs":
-		p = profile.MemProfileAllocs
-	case "heap":
-		p = profile.MemProfileHeap
-	case "rate":
-		p = profile.MemProfileRate(2048)
-	case "mutex":
-		p = profile.MutexProfile
-	case "block":
-		p = profile.BlockProfile
-	case "thread":
-		p = profile.ThreadcreationProfile
-	case "trace":
-		p = profile.TraceProfile
-	default:
-	}
-
-	// Store profile so we can stop it explicitly on signal
-	var prof interface{ Stop() }
-	if p != nil {
-		prof = profile.Start(profile.ProfilePath(*profilePath), profile.NoShutdownHook, p)
-		defer prof.Stop()
-	}
+# Profile 8 producers × 50 Mb/s (400 Mb/s total)
+make test-integration-profile-400mbps
 ```
 
-## ring.go Overview
-This ring.go essentially does:
-1. Creates a bufPool to allow []byte memory reuse
-2. Sets up the lock free ring of size ringSize
-3. Create the b-tree structure to store btreeSize number of packets
-3.1 https://github.com/google/btree because it is well tested
-4. Starts the single reader worker
-4.1 The reader just runs in a ticker timed loop at frequency milliseconds
-4.1 Reader will read from the ring and insert into the btree (btree will sort based on the packet sequence number)
-4.2 Check the size of the btree, and if it's > btreeSize elements, it will start from the .Min() and iterate up until enough elements have been removed
-4.2.1 To safely remove the elements it needs .Put() the data to the sync.Pool, then delete the item from the btree
-5. Creates multiple producers that will
-5.1 Create new packet stucture, with
-5.2 .Get() from the sync.Pool to define the data element
-5.3 Based on the packets/second rate, calculated based on the packetSize and rate Mb/s.  The rate limit implementation follows the data-generator.go method.
+### Profile Results Comparison
 
+Testing was performed on a 12-core machine with standard 1450-byte packets. The ring uses auto-calculated sizing with `sync.Pool` for buffer management.
 
-The producers will `buf := bufPool.Get().([]byte)` from a sync.Pool the provides already initalized data.  This will be slightly slow initially, as each []byte gets initialized, but once .Puts() start to occur then there will be reuse.
+| Metric | 200 Mb/s (4×50) | 400 Mb/s (8×50) | Notes |
+|--------|-----------------|-----------------|-------|
+| **CPU Total** | 39.79s | 79.54s | ~2× as expected (rate-limiting dominates) |
+| **Rate Limiting %** | 93.7% | 94.8% | Busy-wait pacing, actual ring ops negligible |
+| **Memory Total** | 3.49MB | 2.29MB | Pool more efficient at higher throughput |
+| **Allocations** | 4 objects | 7 objects | Nearly zero-allocation hot path |
+| **Heap Live** | 9.59kB | 5.57kB | Excellent memory efficiency |
+| **Mutex Contention** | 398.94µs | 11.13ms | Runtime internals only, not ring |
+| **Blocking** | 100% selectgo | 100% selectgo | Consumer ticker wait, no ring contention |
 
-```
-    bufPool := sync.Pool{
-        New: func() any {
-            // Allocate a []byte of length 1400
-            b := make([]byte, payloadSize)
+### Profile Analysis
 
-            // Initialize with non-zero data
-            // Example: fill with a deterministic pattern
-            for i := range b {
-                b[i] = byte((i % 255) + 1) // never zero
-            }
+#### CPU Profile
 
-            return b
-        },
-```
-
+The dominant CPU consumer is `time.runtimeNow` (93-95%) which is the busy-wait rate limiting in producers. This is expected behavior - the ring operations themselves are so fast they barely register:
 
 ```
-type packet struct {
-	sequence uint32
-    data *[]byte
-}
+T004 - cpu (400 Mb/s):
+  1. time.runtimeNow: 75.43s (94.8%)  ← Rate limiting busy-wait
+  2. time.Now: 1.58s (2.0%)
+  3. time.now: 1.43s (1.8%)
+  4. time.(*Time).sec: 0.46s (0.6%)
+  5. time.Time.UnixNano: 0.39s (0.5%)
 ```
 
-## Tests
-- lock-free-ring tests
-- data-generator for rate-limit testing
-- integration tests that run the ring.go with various configurations to test it works
-e.g.
-test0 := packetSize=1450,rate=1,producers=4,ringSize=1000,btreeSize=2000,frequency=50
-test1 := packetSize=1450,rate=10,producers=4,ringSize=1000,btreeSize=2000,frequency=10
-test2 := packetSize=1450,rate=50,producers=4,ringSize=1000,btreeSize=2000,frequency=10
-test3 := packetSize=1450,rate=50,producers=10,ringSize=1000,btreeSize=2000,frequency=10
+#### Memory Profile
 
-- integration tests run with the profiling enabled
+Memory usage is dominated by the initial buffer pool allocation. Steady-state operation shows excellent memory reuse:
 
-## Non-functional objectives
-- Go idiomatic
-- Low comments with clear variable names for easy reading
+```
+T004 - mem (400 Mb/s):
+  1. main.main.func1: 2.09MB (91.1%)  ← Buffer pool init
+  2. runtime.allocm: 0.04MB (1.9%)    ← Goroutine stacks
+  3. NewShardedRing: 0.02MB (1.0%)    ← Ring structure
+```
+
+#### Allocations Profile
+
+The near-zero allocation count confirms the `sync.Pool` strategy is working:
+
+```
+T004 - allocs (400 Mb/s):
+  Total objects allocated: 7
+  1. main.main.func1: 4 (57.1%)       ← Pool initialization
+  2. github.com/pkg/profile.Start: 1   ← Profiler setup
+  3. runtime.allocm: 1                 ← Goroutine creation
+  4. unicode.map.init.2: 1             ← Static init
+```
+
+#### Block Profile
+
+All blocking occurs in `runtime.selectgo` - the consumer's select statement waiting for its ticker. **No blocking on ring operations**, confirming the lock-free design:
+
+```
+T004 - block (400 Mb/s):
+  1. runtime.selectgo: 39.88s (100.0%)  ← Consumer ticker wait
+  2. main.consumer: 0 (0.0%)
+  3. main.main: 0 (0.0%)
+```
+
+#### Mutex Profile
+
+The small mutex contention comes from Go runtime internals and `sync.Pool`, **not from the ring buffer**:
+
+```
+T004 - mutex (400 Mb/s):
+  Total contention: 11.13ms
+  1. runtime.unlock: 9.01ms (80.9%)    ← Runtime internals
+  2. runtime._LostContendedRuntimeLock: 2.12ms (19.0%)
+```
+
+### Key Performance Findings
+
+1. **Lock-free design validated**: Zero blocking on ring operations even at 400 Mb/s
+2. **Linear scaling**: CPU usage scales linearly with producer count (expected for busy-wait pacing)
+3. **Memory efficiency improves with load**: Higher throughput means better pool utilization
+4. **Zero-allocation hot path**: Only 4-7 objects allocated for entire sustained workload
+5. **No mutex contention in ring**: All measured contention is from Go runtime, not the ring
+
+### HTML Reports
+
+Profile tests generate detailed HTML reports with full analysis:
+
+```bash
+# After running profile tests, view the report:
+xdg-open ./integration-tests/output/report-latest.html
+```
+
+The HTML report includes:
+- Test summary with pass/fail status
+- Detailed metrics table (rate, deviation, drops)
+- Top 5 functions per profile type
+- Auto-generated recommendations
+- Failed test details with logs
+
+## Repository Layout
+
+```
+go-lock-free-ring/
+├── ring.go              # Core lock-free ring buffer library
+├── ring_test.go         # Comprehensive tests and benchmarks
+├── cmd/ring/            # Example application demonstrating the library
+│   ├── ring.go          # Main program with producers, consumer, B-tree
+│   ├── ring_test.go     # Unit tests for the example
+│   └── README.md        # Detailed design document
+├── data-generator/      # Rate-limiting utilities for testing
+├── integration-tests/   # End-to-end tests with profiling
+│   ├── config.go        # Test matrix configuration
+│   ├── executor.go      # Test execution
+│   ├── profiler.go      # Profile collection
+│   ├── analyzer.go      # pprof analysis
+│   ├── reporter.go      # HTML report generation
+│   └── README.md        # Integration test design
+├── Makefile             # Build, test, and benchmark targets
+└── README.md            # This file
+```
+
+### Components
+
+| Component | Description |
+|-----------|-------------|
+| **ring.go** | The core library implementing the sharded lock-free MPSC ring buffer |
+| **cmd/ring/** | Example application: multiple producers generate packets at configurable rates, single consumer drains into a B-tree |
+| **data-generator/** | Utilities for rate-limited data generation (packets/second) |
+| **integration-tests/** | Automated testing with various configurations and profiling support |
+
+### Example Application
+
+The `cmd/ring` example demonstrates a real-world use case: high-speed packet processing.
+
+```bash
+# Run with defaults (4 producers @ 10 Mb/s)
+make run-cmd
+
+# Custom configuration
+./bin/ring -producers=8 -rate=50 -packetSize=1450 -frequency=10 -duration=30s
+```
+
+See `cmd/ring/README.md` for detailed CLI options and design documentation.
+
+## Inspiration
+
+This implementation was inspired by:
+
+- **Herb Sutter's CppCon talk**: [Lock-Free Programming (or, Juggling Razor Blades)](https://youtu.be/c1gO9aB9nbs) - Excellent explanation of lock-free concepts
+- **Blog post**: [Lock-Free Golang](https://congdong007.github.io/2025/08/16/Lock-Free-golang/) - Go-specific implementation ideas
+
+The key concepts implemented:
+- **Ring Buffer**: Fixed-size circular queue with wrap-around pointers
+- **MPSC**: Multiple producers can write concurrently; single consumer reads
+- **Lock-Free**: Atomic operations (CAS) instead of mutexes
+- **Sharding**: Partitioned ring reduces producer contention
+
+## License
+
+MIT

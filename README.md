@@ -5,8 +5,9 @@ A high-performance, lock-free, sharded MPSC (Multi-Producer, Single-Consumer) ri
 **Key Features:**
 - Lock-free design using atomic operations (no mutexes)
 - Sharded architecture to minimize producer contention
+- **6 configurable retry strategies** for different load scenarios
 - Zero-allocation steady-state with `sync.Pool` integration
-- Tested up to 400 Mb/s sustained throughput
+- Tested up to 2300+ Mb/s sustained throughput ( Ryzen Threadripper PRO 3945W )
 - Comprehensive benchmarks and profiling
 
 <img src="./go-lock-free-ring.png" alt="go-lock-free-ring" width="80%" height="80%"/>
@@ -71,9 +72,29 @@ make test
 
 # Run benchmarks
 make bench
+```
 
-# Run performance profiling (400 Mb/s test)
-make test-integration-profile-400mbps
+### See It In Action: 1 Gbps Throughput Demo
+
+Run a quick 1 Gbps integration test to see the ring buffer at high throughput:
+
+```bash
+# Quick 1 Gbps test (8 producers × 125 Mb/s = 1000 Mb/s)
+make test-integration-1gbps
+```
+
+**Example output:**
+```
+=== RUN   TestIntegration/T001_8p_125Mb_1Gbps
+    integration_test.go:98: Expected: 1000 Mb/s, Achieved: 1000.00 Mb/s, Deviation: +0.00%
+    integration_test.go:102: Produced: 862121, Dropped: 0 (0.00%), Consumed: 862121
+--- PASS: TestIntegration/T001_8p_125Mb_1Gbps (10.01s)
+```
+
+For detailed profiling at 1 Gbps with HTML report:
+```bash
+make test-integration-profile-1gbps
+# Opens report: ./integration-tests/output/report-latest.html
 ```
 
 ### Performance at a Glance
@@ -82,6 +103,10 @@ make test-integration-profile-400mbps
 |--------------|------------|--------|-------------|-----------------|
 | 4×50 Mb/s | 200 Mb/s | 3.49 MB | 4 objects | 0% |
 | 8×50 Mb/s | 400 Mb/s | 2.29 MB | 7 objects | 0% |
+| 8×100 Mb/s | 800 Mb/s | - | - | 0% |
+| 16×100 Mb/s | 1600 Mb/s | - | - | ~27% drop* |
+
+*System ceiling ~2300 Mb/s on 12-core Ryzen Threadripper. See [Retry Strategies](#retry-strategies) for load handling.
 
 See [Performance Testing](#performance-testing) for detailed profiling results.
 
@@ -240,6 +265,25 @@ if !ring.WriteWithBackoff(producerID, value, config) {
 ```
 
 This reduces CPU spinning when producers outpace the consumer, trading latency for efficiency.
+
+**Advanced: Using the Writer type with retry strategies:**
+
+```go
+// Create a Writer with a specific retry strategy
+writer := ring.NewWriter(r, producerID, ring.WriteConfig{
+    Strategy:        ring.AdaptiveBackoff,
+    MaxRetries:      10,
+    BackoffDuration: 100 * time.Microsecond,
+    MaxBackoffs:     1000,
+})
+
+// Write uses the pre-resolved strategy function (no switch on hot path)
+if !writer.Write(value) {
+    // Handle backpressure
+}
+```
+
+See [Retry Strategies](#retry-strategies) for details on choosing the right strategy.
 
 #### Consumer Interface
 
@@ -443,6 +487,66 @@ for _, item := range items {
 3. **Single Consumer Only**: Design does not extend to multiple consumers without additional synchronization
 4. **Ordering**: Global ordering is not preserved; only per-shard ordering is maintained
 
+### Retry Strategies
+
+When a shard is full, the ring buffer supports multiple retry strategies. Each strategy has different performance characteristics depending on load conditions.
+
+#### Available Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| **SleepBackoff** (default) | Retry same shard, then sleep for a fixed duration. Simple, robust, low CPU. |
+| **NextShard** | Try all shards in round-robin order before sleeping. Good when load is uneven. |
+| **RandomShard** | Try random shards before sleeping. Spreads load across shards. |
+| **AdaptiveBackoff** | Exponential backoff with jitter on same shard. Graceful degradation under load. |
+| **SpinThenYield** | Yield processor (`runtime.Gosched()`) instead of sleeping. Lowest latency, highest CPU. |
+| **Hybrid** | Combines NextShard traversal with AdaptiveBackoff. For complex scenarios. |
+
+#### Strategy Selection Guide
+
+| Scenario | Recommended | Why |
+|----------|-------------|-----|
+| **General purpose** | `SleepBackoff` | Most robust, works well in most conditions |
+| **High throughput (>800 Mb/s)** | `SleepBackoff` or `AdaptiveBackoff` | Best throughput under sustained load |
+| **Low latency, light load** | `SpinThenYield` | Minimal latency when ring rarely fills |
+| **Uneven producer distribution** | `NextShard` | Finds available shards faster |
+| **Bursty traffic** | `AdaptiveBackoff` | Exponential backoff handles bursts gracefully |
+
+⚠️ **Avoid `NextShard` under extreme load** - When all shards are saturated, the overhead of iterating through shards hurts performance significantly.
+
+#### Performance Analysis
+
+Based on testing at various throughput levels (see `documentation/STRATEGY-TEST-ANALYSIS.md`):
+
+| Load | All Strategies |
+|------|---------------|
+| < 800 Mb/s | Perform identically |
+| 800-1600 Mb/s | Minor differences emerge |
+| > 1600 Mb/s | `SleepBackoff`/`AdaptiveBackoff` best, `NextShard` worst |
+
+**System ceiling**: On a 12-core Ryzen Threadripper, maximum sustainable throughput was ~2300 Mb/s regardless of strategy. This ceiling is determined by CPU scheduling, memory bandwidth, and consumer drain rate - not the retry strategy.
+
+#### Using Strategies
+
+```go
+// Method 1: WriteWithBackoff (creates strategy state per call)
+config := ring.WriteConfig{
+    Strategy:        ring.AdaptiveBackoff,
+    MaxRetries:      10,
+    BackoffDuration: 100 * time.Microsecond,
+    MaxBackoffs:     1000,
+}
+ring.WriteWithBackoff(producerID, value, config)
+
+// Method 2: Writer type (recommended - resolves strategy once)
+writer := ring.NewWriter(ring, producerID, config)
+for {
+    writer.Write(value)  // No strategy switch on hot path
+}
+```
+
+The `Writer` type resolves the strategy function at creation time, avoiding a switch statement on every write. This is the recommended approach for high-performance scenarios.
+
 ### Configuration Recommendations
 
 | Parameter | Recommendation | Rationale |
@@ -480,6 +584,12 @@ The ring library includes comprehensive tests that verify correctness under vari
 | `TestWriteWithBackoff` | Backoff mechanism when ring is full |
 | `TestWriteWithBackoffConcurrent` | Concurrent producers with backoff |
 | `TestDefaultWriteConfig` | Default configuration values |
+| `TestRetryStrategyString` | Strategy enum string conversion |
+| `TestNewWriter` | Writer creation and basic functionality |
+| `TestWriterStrategies` | All 6 retry strategies under normal load |
+| `TestNextShardFallback` | NextShard falls back when primary shard full |
+| `TestWriterConcurrent` | Concurrent writes with different strategies |
+| `TestWriterReset` | Writer state reset functionality |
 | `TestShardDistribution` | Verify producer ID maps to correct shard |
 | `TestWrapAround` | Ring buffer wrap-around over multiple fill/drain cycles |
 | `TestCapAndLen` | Capacity and length reporting |
@@ -499,6 +609,8 @@ The ring library includes comprehensive tests that verify correctness under vari
 | `BenchmarkWriteNoContention` | Minimal contention (many shards) | `make bench` |
 | `BenchmarkShardCount` | Performance vs shard count (1-32 shards) | `make bench` |
 | `BenchmarkThroughput` | Sustained parallel throughput | `make bench` |
+| `BenchmarkWriterStrategy` | Compares all retry strategies | `make bench` |
+| `BenchmarkWriterVsWriteWithBackoff` | Writer type vs WriteWithBackoff method | `make bench` |
 | `BenchmarkFalseSharing` | Demonstrates cache line false sharing | `make bench-falsesharing` |
 | `BenchmarkFalseSharingContention` | Two-counter false sharing demo | `make bench-falsesharing` |
 | `BenchmarkShardPadding` | Tests optimal padding sizes (0-56 bytes) | `make bench-padding` |
@@ -626,6 +738,12 @@ make bench-mem
 make bench-padding       # Test cache line padding effectiveness
 make bench-falsesharing  # Demonstrate false sharing impact
 make bench-pattern PATTERN=ReadBatch  # Run specific benchmark pattern
+
+# Run strategy comparison tests
+make test-strategy-quick       # Quick comparison (~1 min)
+make test-strategy-standard    # All strategies (~5 min)
+make test-strategy-contention  # GOMAXPROCS variations (~15 min)
+make test-strategy-throughput  # High-throughput stress (~20 min)
 ```
 
 ## Performance Testing
@@ -751,32 +869,46 @@ The HTML report includes:
 
 ```
 go-lock-free-ring/
-├── ring.go              # Core lock-free ring buffer library
-├── ring_test.go         # Comprehensive tests and benchmarks
-├── cmd/ring/            # Example application demonstrating the library
-│   ├── ring.go          # Main program with producers, consumer, B-tree
-│   ├── ring_test.go     # Unit tests for the example
-│   └── README.md        # Detailed design document
-├── data-generator/      # Rate-limiting utilities for testing
-├── integration-tests/   # End-to-end tests with profiling
-│   ├── config.go        # Test matrix configuration
-│   ├── executor.go      # Test execution
-│   ├── profiler.go      # Profile collection
-│   ├── analyzer.go      # pprof analysis
-│   ├── reporter.go      # HTML report generation
-│   └── README.md        # Integration test design
-├── Makefile             # Build, test, and benchmark targets
-└── README.md            # This file
+├── ring.go                    # Core types: ShardedRing, Shard, slot
+├── writer.go                  # Writer type, WriteConfig, retry strategies API
+├── strategies.go              # Retry strategy implementations
+├── ring_test.go               # Core functionality tests
+├── writer_test.go             # Writer and strategy tests
+├── ring_bench_test.go         # Performance benchmarks
+├── falsesharing_bench_test.go # Cache line false sharing demos
+├── boxing_test.go             # Interface boxing investigation
+├── cmd/ring/                  # Example application
+│   ├── ring.go                # Main: producers, consumer, B-tree
+│   ├── ring_test.go           # Unit tests
+│   └── README.md              # Detailed design document
+├── data-generator/            # Rate-limiting utilities
+├── integration-tests/         # End-to-end tests with profiling
+│   ├── config.go              # Test matrix configuration
+│   ├── executor.go            # Test execution
+│   ├── strategy_runner.go     # Strategy comparison tests
+│   ├── profiler.go            # Profile collection
+│   ├── analyzer.go            # pprof analysis
+│   ├── reporter.go            # HTML report generation
+│   └── README.md              # Integration test design
+├── documentation/             # Design documents
+│   ├── DESIGN-RETRY-STRATEGIES.md    # Retry strategies design
+│   ├── STRATEGY-TEST-ANALYSIS.md     # Performance analysis results
+│   └── retry-strategies-implementation.md  # Implementation notes
+├── Makefile                   # Build, test, and benchmark targets
+└── README.md                  # This file
 ```
 
 ### Components
 
 | Component | Description |
 |-----------|-------------|
-| **ring.go** | The core library implementing the sharded lock-free MPSC ring buffer |
+| **ring.go** | Core types: `ShardedRing`, `Shard`, `slot`, basic `Write`/`TryRead` operations |
+| **writer.go** | `Writer` type for optimized writes, `WriteConfig`, retry strategy definitions |
+| **strategies.go** | All 6 retry strategy implementations |
 | **cmd/ring/** | Example application: multiple producers generate packets at configurable rates, single consumer drains into a B-tree |
 | **data-generator/** | Utilities for rate-limited data generation (packets/second) |
-| **integration-tests/** | Automated testing with various configurations and profiling support |
+| **integration-tests/** | Automated testing with various configurations, strategy comparison, and profiling support |
+| **documentation/** | Design documents, performance analysis, implementation notes |
 
 ### Example Application
 

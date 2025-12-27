@@ -88,6 +88,16 @@ func (e *Executor) Run(ctx context.Context, tc TestCase, profileMode string) (*E
 		args = append(args, fmt.Sprintf("-ringShards=%d", tc.RingShards))
 	}
 
+	// Add strategy if specified
+	if tc.Strategy != "" {
+		args = append(args, fmt.Sprintf("-strategy=%s", tc.Strategy))
+	}
+
+	// Add GOMAXPROCS if specified (non-zero)
+	if tc.GOMAXPROCS > 0 {
+		args = append(args, fmt.Sprintf("-gomaxprocs=%d", tc.GOMAXPROCS))
+	}
+
 	// Add profiling if requested
 	if profileMode != "" {
 		profilePath := filepath.Join(e.OutputDir, "profiles", fmt.Sprintf("%s_%s.prof", tc.ID, profileMode))

@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Test Report - 2025-12-27 13:05:33</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-purple: #a855f7;
+            --accent-orange: #f97316;
+            --border-color: #475569;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        h3 {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+        
+        .timestamp {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            margin-bottom: 2rem;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .summary-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+        }
+        
+        .summary-card h3 {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .summary-card .value {
+            font-size: 2rem;
+            font-weight: 600;
+        }
+        
+        .summary-card .value.pass { color: var(--accent-green); }
+        .summary-card .value.fail { color: var(--accent-red); }
+        .summary-card .value.neutral { color: var(--accent-blue); }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+        }
+        
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+        
+        tr:hover {
+            background: var(--bg-secondary);
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .status.pass {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+        
+        .status.fail {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+        
+        .deviation {
+            font-family: inherit;
+        }
+        
+        .deviation.positive { color: var(--accent-red); }
+        .deviation.negative { color: var(--accent-green); }
+        
+        .profile-section {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin: 1rem 0;
+            border: 1px solid var(--border-color);
+        }
+        
+        .profile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .profile-type {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: var(--accent-purple);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .function-name {
+            font-family: inherit;
+            color: var(--accent-orange);
+        }
+        
+        .recommendations {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1.25rem;
+            border-left: 4px solid var(--accent-blue);
+        }
+        
+        .recommendations ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .recommendations li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        
+        .recommendations li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: var(--accent-blue);
+        }
+        
+        .error-block {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--accent-red);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .error-block h4 {
+            color: var(--accent-red);
+            margin-bottom: 0.5rem;
+        }
+        
+        pre {
+            background: var(--bg-primary);
+            border-radius: 4px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            border: 1px solid var(--border-color);
+        }
+        
+        .no-data {
+            color: var(--text-secondary);
+            font-style: italic;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            
+            table {
+                font-size: 0.75rem;
+            }
+            
+            th, td {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Integration Test Report</h1>
+        <p class="timestamp">Generated: 2025-12-27 13:05:33 | Duration: 1m21s</p>
+        
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Total Tests</h3>
+                <p class="value neutral">4</p>
+            </div>
+            <div class="summary-card">
+                <h3>Passed</h3>
+                <p class="value pass">4</p>
+            </div>
+            <div class="summary-card">
+                <h3>Failed</h3>
+                <p class="value fail">0</p>
+            </div>
+            <div class="summary-card">
+                <h3>Pass Rate</h3>
+                <p class="value pass">100.0%</p>
+            </div>
+            <div class="summary-card">
+                <h3>Profiles</h3>
+                <p class="value neutral">6</p>
+            </div>
+        </div>
+        
+        <h2>📊 Test Results</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Test</th>
+                    <th>Configuration</th>
+                    <th>Expected</th>
+                    <th>Achieved</th>
+                    <th>Deviation</th>
+                    <th>Drop %</th>
+                    <th>Shutdown</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                
+                <tr>
+                    <td>T001</td>
+                    <td>1p×10Mb/1450b/10ms</td>
+                    <td>10 Mb/s</td>
+                    <td>10.00 Mb/s</td>
+                    <td class="deviation positive">&#43;0.00%</td>
+                    <td>0.00%</td>
+                    <td>0s</td>
+                    <td><span class="status pass">✓ PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td>T002</td>
+                    <td>4p×10Mb/1450b/10ms</td>
+                    <td>40 Mb/s</td>
+                    <td>40.01 Mb/s</td>
+                    <td class="deviation positive">&#43;0.02%</td>
+                    <td>0.00%</td>
+                    <td>1ms</td>
+                    <td><span class="status pass">✓ PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td>T003</td>
+                    <td>4p×50Mb/1450b/10ms</td>
+                    <td>200 Mb/s</td>
+                    <td>200.00 Mb/s</td>
+                    <td class="deviation positive">&#43;0.00%</td>
+                    <td>0.00%</td>
+                    <td>0s</td>
+                    <td><span class="status pass">✓ PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td>T004</td>
+                    <td>8p×50Mb/1450b/10ms</td>
+                    <td>400 Mb/s</td>
+                    <td>399.99 Mb/s</td>
+                    <td class="deviation negative">-0.00%</td>
+                    <td>0.00%</td>
+                    <td>0s</td>
+                    <td><span class="status pass">✓ PASS</span></td>
+                </tr>
+                
+            </tbody>
+        </table>
+        
+        
+        
+        <h2>🔍 Profile Analysis</h2>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">cpu</span></h3>
+                <span>Total: 79.49s</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">time.runtimeNow</span></td>
+                        <td>74.74s</td>
+                        <td>94.0%</td>
+                        <td>74.74s</td>
+                        <td>94.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">time.Now</span></td>
+                        <td>1.55s</td>
+                        <td>1.9%</td>
+                        <td>76.29s</td>
+                        <td>96.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">time.now</span></td>
+                        <td>1.47s</td>
+                        <td>1.9%</td>
+                        <td>1.47s</td>
+                        <td>1.9%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">time.Time.UnixNano (inline)</span></td>
+                        <td>0.34s</td>
+                        <td>0.4%</td>
+                        <td>0.77s</td>
+                        <td>1.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">main.producer</span></td>
+                        <td>0.17s</td>
+                        <td>0.2%</td>
+                        <td>77.90s</td>
+                        <td>98.0%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">mem</span></h3>
+                <span>Total: 2301.76kB</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">main.main.func1</span></td>
+                        <td>2063.57kB</td>
+                        <td>89.7%</td>
+                        <td>2063.57kB</td>
+                        <td>89.7%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">runtime.malg</span></td>
+                        <td>59.12kB</td>
+                        <td>2.6%</td>
+                        <td>59.12kB</td>
+                        <td>2.6%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">runtime.allocm</span></td>
+                        <td>50.83kB</td>
+                        <td>2.2%</td>
+                        <td>103.69kB</td>
+                        <td>4.5%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">main.init.func1</span></td>
+                        <td>32.06kB</td>
+                        <td>1.4%</td>
+                        <td>32.06kB</td>
+                        <td>1.4%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">github.com/randomizedcoder/go-lock-free-ring.NewShardedRing</span></td>
+                        <td>32kB</td>
+                        <td>1.4%</td>
+                        <td>32kB</td>
+                        <td>1.4%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">allocs</span></h3>
+                <span>Total: 10</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">main.main.func1</span></td>
+                        <td>3</td>
+                        <td>30.0%</td>
+                        <td>3</td>
+                        <td>30.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">runtime.allocm</span></td>
+                        <td>3</td>
+                        <td>30.0%</td>
+                        <td>3</td>
+                        <td>30.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">github.com/pkg/profile.Start</span></td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">regexp/syntax.(*parser).push</span></td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">syscall.init.func1</span></td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                        <td>1</td>
+                        <td>10.0%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">heap</span></h3>
+                <span>Total: 14.88kB</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">unicode.map.init.2</span></td>
+                        <td>6.38kB</td>
+                        <td>42.9%</td>
+                        <td>6.38kB</td>
+                        <td>42.9%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">main.main.func1</span></td>
+                        <td>4.50kB</td>
+                        <td>30.2%</td>
+                        <td>4.50kB</td>
+                        <td>30.2%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">runtime.allocm</span></td>
+                        <td>4kB</td>
+                        <td>26.9%</td>
+                        <td>4kB</td>
+                        <td>26.9%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">main.producer</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>4.50kB</td>
+                        <td>30.2%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">runtime.doInit</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>6.38kB</td>
+                        <td>42.9%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">mutex</span></h3>
+                <span>Total: 6.51ms</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">runtime.unlock (inline)</span></td>
+                        <td>5.33ms</td>
+                        <td>81.9%</td>
+                        <td>5.33ms</td>
+                        <td>81.9%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">runtime._LostContendedRuntimeLock</span></td>
+                        <td>1.13ms</td>
+                        <td>17.3%</td>
+                        <td>1.13ms</td>
+                        <td>17.3%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">sync.(*Mutex).Unlock</span></td>
+                        <td>0.05ms</td>
+                        <td>0.8%</td>
+                        <td>0.05ms</td>
+                        <td>0.8%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">github.com/google/btree.(*BTree).ReplaceOrInsert</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>0.10ms</td>
+                        <td>1.6%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">github.com/google/btree.(*BTreeG[go.shape.interface { Less(github.com/google/btree.Item) bool }]).ReplaceOrInsert</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>0.10ms</td>
+                        <td>1.6%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        <div class="profile-section">
+            <div class="profile-header">
+                <h3>T004 <span class="profile-type">block</span></h3>
+                <span>Total: 39.87s</span>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Function</th>
+                        <th>Flat</th>
+                        <th>Flat %</th>
+                        <th>Cum</th>
+                        <th>Cum %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>1</td>
+                        <td><span class="function-name">runtime.selectgo</span></td>
+                        <td>39.87s</td>
+                        <td>100.0%</td>
+                        <td>39.87s</td>
+                        <td>100.0%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>2</td>
+                        <td><span class="function-name">main.consumer</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>9.87s</td>
+                        <td>24.8%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>3</td>
+                        <td><span class="function-name">main.main</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>10s</td>
+                        <td>25.1%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>4</td>
+                        <td><span class="function-name">main.main.gowrap2</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>9.87s</td>
+                        <td>24.8%</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>5</td>
+                        <td><span class="function-name">os/signal.NotifyContext.func1</span></td>
+                        <td>0</td>
+                        <td>0.0%</td>
+                        <td>10s</td>
+                        <td>25.1%</td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+            
+        </div>
+        
+        
+        
+        
+        
+        
+        <h2>💡 Recommendations</h2>
+        <div class="recommendations">
+            <ul>
+                
+                <li>Mutex contention in runtime.unlock (inline) (81.9%) - consider lock-free alternatives or finer-grained locking</li>
+                
+            </ul>
+        </div>
+        
+        
+    </div>
+</body>
+</html>

@@ -17,6 +17,8 @@ type TestCase struct {
 	RingSize    int           // 0 = auto-calculate
 	RingShards  int           // Number of shards (0 = match producers)
 	BTreeSize   int           // B-tree capacity
+	Strategy    string        // Retry strategy (SleepBackoff, NextShard, etc.)
+	GOMAXPROCS  int           // GOMAXPROCS setting (0 = default)
 }
 
 // ExpectedTotalRate returns the expected total throughput in Mb/s
@@ -26,8 +28,15 @@ func (tc TestCase) ExpectedTotalRate() float64 {
 
 // ConfigString returns a short configuration description
 func (tc TestCase) ConfigString() string {
-	return fmt.Sprintf("%dp×%.0fMb/%db/%dms",
+	base := fmt.Sprintf("%dp×%.0fMb/%db/%dms",
 		tc.Producers, tc.Rate, tc.PacketSize, tc.Frequency)
+	if tc.Strategy != "" {
+		base += "/" + tc.Strategy
+	}
+	if tc.GOMAXPROCS > 0 {
+		base += fmt.Sprintf("/P%d", tc.GOMAXPROCS)
+	}
+	return base
 }
 
 // TestMatrixConfig defines the parameter ranges for test generation
@@ -190,6 +199,14 @@ var PredefinedTestSets = map[string][]TestCase{
 		{ID: "T009", Name: "4p_10Mb_slow_consumer", Producers: 4, Rate: 10, PacketSize: 1450, Frequency: 50, Duration: 10 * time.Second, BTreeSize: 2000},
 		{ID: "T010", Name: "4p_10Mb_fast_consumer", Producers: 4, Rate: 10, PacketSize: 1450, Frequency: 5, Duration: 10 * time.Second, BTreeSize: 2000},
 	},
+	// High-throughput tests for demonstrating maximum performance
+	"gbps": {
+		{ID: "T001", Name: "8p_125Mb_1Gbps", Producers: 8, Rate: 125, PacketSize: 1450, Frequency: 5, Duration: 10 * time.Second, RingShards: 8, BTreeSize: 4000},
+	},
+	"highrate": {
+		{ID: "T001", Name: "8p_125Mb_1Gbps", Producers: 8, Rate: 125, PacketSize: 1450, Frequency: 5, Duration: 10 * time.Second, RingShards: 8, BTreeSize: 4000},
+		{ID: "T002", Name: "16p_125Mb_2Gbps", Producers: 16, Rate: 125, PacketSize: 1450, Frequency: 5, Duration: 10 * time.Second, RingShards: 16, BTreeSize: 8000},
+	},
 }
 
 // GetPredefinedTestSet returns a predefined test set by name
@@ -322,5 +339,164 @@ func GetMatrixStats(tests []TestCase) MatrixStats {
 	}
 
 	return stats
+}
+
+// =============================================================================
+// Strategy Test Configuration
+// =============================================================================
+
+// AllStrategies lists all available retry strategies
+var AllStrategies = []string{
+	"SleepBackoff",
+	"NextShard",
+	"RandomShard",
+	"AdaptiveBackoff",
+	"SpinThenYield",
+	"Hybrid",
+}
+
+// StrategyTestMatrixConfig defines parameters for strategy comparison tests
+type StrategyTestMatrixConfig struct {
+	Strategies  []string      // Strategies to test
+	GOMAXPROCS  []int         // GOMAXPROCS values to test (0 = default)
+	Producers   []int         // Producer counts
+	Rates       []float64     // Per-producer rates (Mb/s)
+	PacketSize  int           // Packet size (constant)
+	Frequency   int           // Consumer frequency (constant)
+	Duration    time.Duration // Test duration
+	BTreeSize   int           // B-tree capacity
+}
+
+// DefaultStrategyTestMatrixConfig returns a balanced config for strategy comparison
+func DefaultStrategyTestMatrixConfig() StrategyTestMatrixConfig {
+	return StrategyTestMatrixConfig{
+		Strategies:  AllStrategies,
+		GOMAXPROCS:  []int{0},              // Just default GOMAXPROCS
+		Producers:   []int{4, 8},           // Moderate producer counts
+		Rates:       []float64{10, 50},     // Moderate rates
+		PacketSize:  1450,                  // Standard packet size
+		Frequency:   10,                    // Standard consumer frequency
+		Duration:    5 * time.Second,       // Short duration for comparison
+		BTreeSize:   2000,
+	}
+}
+
+// ContentionStrategyTestMatrixConfig returns config for high-contention scenarios
+// Uses various GOMAXPROCS to demonstrate contention impact
+func ContentionStrategyTestMatrixConfig() StrategyTestMatrixConfig {
+	return StrategyTestMatrixConfig{
+		Strategies:  AllStrategies,
+		GOMAXPROCS:  []int{1, 2, 4, 0},     // Test with limited and default parallelism
+		Producers:   []int{8, 16},          // Higher producer counts = more contention
+		Rates:       []float64{50, 100},    // Higher rates = more pressure
+		PacketSize:  1450,
+		Frequency:   10,
+		Duration:    5 * time.Second,
+		BTreeSize:   2000,
+	}
+}
+
+// QuickStrategyTestMatrixConfig returns minimal config for quick validation
+func QuickStrategyTestMatrixConfig() StrategyTestMatrixConfig {
+	return StrategyTestMatrixConfig{
+		Strategies:  []string{"SleepBackoff", "NextShard", "SpinThenYield"},
+		GOMAXPROCS:  []int{0},
+		Producers:   []int{4},
+		Rates:       []float64{10},
+		PacketSize:  1450,
+		Frequency:   10,
+		Duration:    3 * time.Second,
+		BTreeSize:   2000,
+	}
+}
+
+// HighThroughputStrategyTestConfig returns config for throughput-focused testing
+func HighThroughputStrategyTestConfig() StrategyTestMatrixConfig {
+	return StrategyTestMatrixConfig{
+		Strategies:  AllStrategies,
+		GOMAXPROCS:  []int{0},              // Default (all cores)
+		Producers:   []int{8, 16, 32},      // Many producers
+		Rates:       []float64{100, 200},   // High rates
+		PacketSize:  1450,
+		Frequency:   5,                     // Fast consumer
+		Duration:    10 * time.Second,
+		BTreeSize:   4000,
+	}
+}
+
+// GenerateStrategyTestCases generates test cases for strategy comparison
+func GenerateStrategyTestCases(cfg StrategyTestMatrixConfig) []TestCase {
+	var tests []TestCase
+	id := 1
+
+	for _, strategy := range cfg.Strategies {
+		for _, gomaxprocs := range cfg.GOMAXPROCS {
+			for _, producers := range cfg.Producers {
+				for _, rate := range cfg.Rates {
+					tc := TestCase{
+						ID:         fmt.Sprintf("S%03d", id),
+						Name:       generateStrategyTestName(strategy, gomaxprocs, producers, rate),
+						Producers:  producers,
+						Rate:       rate,
+						PacketSize: cfg.PacketSize,
+						Frequency:  cfg.Frequency,
+						Duration:   cfg.Duration,
+						RingSize:   0, // auto-calculate
+						RingShards: nextPowerOf2(producers),
+						BTreeSize:  cfg.BTreeSize,
+						Strategy:   strategy,
+						GOMAXPROCS: gomaxprocs,
+					}
+					tests = append(tests, tc)
+					id++
+				}
+			}
+		}
+	}
+
+	return tests
+}
+
+// generateStrategyTestName creates a descriptive name for strategy tests
+func generateStrategyTestName(strategy string, gomaxprocs int, producers int, rate float64) string {
+	name := fmt.Sprintf("%s_%dp_%.0fMb", strategy, producers, rate)
+	if gomaxprocs > 0 {
+		name += fmt.Sprintf("_P%d", gomaxprocs)
+	}
+	return name
+}
+
+// FilterByStrategy returns a filter for specific strategies
+func FilterByStrategy(strategies ...string) TestFilter {
+	set := make(map[string]bool)
+	for _, s := range strategies {
+		set[s] = true
+	}
+	return func(tc TestCase) bool {
+		if tc.Strategy == "" {
+			return true // Don't filter non-strategy tests
+		}
+		return set[tc.Strategy]
+	}
+}
+
+// FilterByGOMAXPROCS returns a filter for specific GOMAXPROCS values
+func FilterByGOMAXPROCS(values ...int) TestFilter {
+	set := make(map[int]bool)
+	for _, v := range values {
+		set[v] = true
+	}
+	return func(tc TestCase) bool {
+		return set[tc.GOMAXPROCS]
+	}
+}
+
+// Strategy-specific predefined test sets
+func init() {
+	// Add strategy test sets to PredefinedTestSets
+	PredefinedTestSets["strategy-quick"] = GenerateStrategyTestCases(QuickStrategyTestMatrixConfig())
+	PredefinedTestSets["strategy-standard"] = GenerateStrategyTestCases(DefaultStrategyTestMatrixConfig())
+	PredefinedTestSets["strategy-contention"] = GenerateStrategyTestCases(ContentionStrategyTestMatrixConfig())
+	PredefinedTestSets["strategy-throughput"] = GenerateStrategyTestCases(HighThroughputStrategyTestConfig())
 }
 

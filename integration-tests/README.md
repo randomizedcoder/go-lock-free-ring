@@ -7,8 +7,64 @@ This document describes the design for the integration test suite that validates
 The integration tests verify end-to-end functionality of the ring buffer system by:
 1. Running `cmd/ring` with various configurations (rates, producers, ring sizes)
 2. Validating that the consumer achieves the target throughput
-3. Optionally running with profiling enabled
-4. Producing an automated HTML report with profile analysis
+3. Testing different **retry strategies** for handling ring contention
+4. Optionally running with profiling enabled
+5. Producing an automated HTML report with profile analysis
+
+## Retry Strategies
+
+The ring buffer supports multiple retry strategies for handling full shards. Each strategy has different performance characteristics under various load conditions.
+
+### Available Strategies
+
+| Strategy | Description | Best For |
+|----------|-------------|----------|
+| **SleepBackoff** (default) | Retry same shard, then sleep for fixed duration | General use, robust under load |
+| **NextShard** | Try all shards in round-robin before sleeping | Low-moderate load with uneven distribution |
+| **RandomShard** | Try random shards before sleeping | Spreading load across shards |
+| **AdaptiveBackoff** | Exponential backoff with jitter on same shard | High load, graceful degradation |
+| **SpinThenYield** | Yield processor instead of sleeping | Latency-sensitive, low load |
+| **Hybrid** | Combines NextShard with AdaptiveBackoff | Complex scenarios |
+
+### Strategy Recommendations
+
+Based on performance analysis (see `STRATEGY-TEST-ANALYSIS.md`):
+
+| Scenario | Recommended Strategy | Reason |
+|----------|---------------------|--------|
+| **General use** | SleepBackoff (default) | Most robust, best overall performance |
+| **High load (>800 Mb/s)** | SleepBackoff or AdaptiveBackoff | Best throughput under pressure |
+| **Low load, latency-sensitive** | SpinThenYield | Lowest latency when not saturated |
+| **Uneven shard distribution** | NextShard | Finds available space faster |
+| **Avoid under extreme load** | NextShard | Significantly worse when all shards saturated |
+
+### Running Strategy Tests
+
+```bash
+# Quick strategy comparison (3 strategies, ~1 min)
+make test-strategy-quick
+
+# Standard strategy comparison (all 6 strategies, ~5 min)
+make test-strategy-standard
+
+# High-contention tests with GOMAXPROCS variations (~15 min)
+make test-strategy-contention
+
+# High-throughput stress tests (~20 min)
+make test-strategy-throughput
+```
+
+### Strategy Test Configuration
+
+Strategy tests use the `-strategy` flag:
+
+```bash
+# Run with a specific strategy
+./bin/ring -producers=8 -rate=100 -strategy=AdaptiveBackoff
+
+# With GOMAXPROCS control
+./bin/ring -producers=8 -rate=100 -strategy=SleepBackoff -gomaxprocs=4
+```
 
 ## Test Matrix
 
@@ -106,6 +162,27 @@ Based on these results, recommended configurations:
 | 100-400 Mb/s | 10-50ms recommended | 2-3x |
 | > 400 Mb/s | 5-10ms required | 3-4x |
 
+### System Performance Ceiling
+
+**Important**: Integration tests may fail above a system-dependent throughput ceiling.
+
+Based on testing on a Ryzen Threadripper PRO 3945WX (12 cores, 24 threads):
+
+| Metric | Observed Value |
+|--------|----------------|
+| **Maximum sustainable throughput** | ~2300-2400 Mb/s |
+| **Performance cliff** | 16+ producers at 100+ Mb/s each |
+| **Best strategies under load** | SleepBackoff, AdaptiveBackoff |
+| **Worst strategy under load** | NextShard (due to shard iteration overhead) |
+
+Tests like `T006_16p_100Mb_standard` (expected 1600 Mb/s) may fail because they hit system-level bottlenecks:
+- CPU scheduling contention with many goroutines
+- Memory bandwidth limits
+- Consumer drain rate limits
+- Go runtime scheduler overhead
+
+**This is expected behavior** - the test reveals the system's throughput ceiling, not a bug.
+
 ### Key Takeaways
 
 1. **Consumer frequency is the primary throughput limiter** - not the ring size or producer count
@@ -192,6 +269,8 @@ type TestCase struct {
     RingSize    int           // 0 = auto-calculate
     RingShards  int           // Number of shards
     BTreeSize   int           // B-tree capacity
+    Strategy    string        // Retry strategy (SleepBackoff, NextShard, etc.)
+    GOMAXPROCS  int           // GOMAXPROCS setting (0 = default)
 }
 ```
 
@@ -580,6 +659,19 @@ integration-report:
 # Clean integration test output
 integration-clean:
 	rm -rf ./integration-tests/output/
+
+# Strategy comparison tests
+test-strategy-quick:
+	go test -v -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-quick
+
+test-strategy-standard:
+	go test -v -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-standard
+
+test-strategy-contention:
+	go test -v -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-contention
+
+test-strategy-throughput:
+	go test -v -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-throughput
 ```
 
 ## Usage Examples

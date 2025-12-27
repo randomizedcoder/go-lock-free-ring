@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Integration Test Report - 2025-12-18 13:28:14</title>
+    <title>Integration Test Report - 2025-12-27 13:06:52</title>
     <style>
         :root {
             --bg-primary: #0f172a;
@@ -259,16 +259,16 @@
 <body>
     <div class="container">
         <h1>🔬 Integration Test Report</h1>
-        <p class="timestamp">Generated: 2025-12-18 13:28:14 | Duration: 1m21s</p>
+        <p class="timestamp">Generated: 2025-12-27 13:06:52 | Duration: 1m11s</p>
         
         <div class="summary-grid">
             <div class="summary-card">
                 <h3>Total Tests</h3>
-                <p class="value neutral">4</p>
+                <p class="value neutral">1</p>
             </div>
             <div class="summary-card">
                 <h3>Passed</h3>
-                <p class="value pass">4</p>
+                <p class="value pass">1</p>
             </div>
             <div class="summary-card">
                 <h3>Failed</h3>
@@ -303,42 +303,9 @@
                 
                 <tr>
                     <td>T001</td>
-                    <td>1p×10Mb/1450b/10ms</td>
-                    <td>10 Mb/s</td>
-                    <td>10.00 Mb/s</td>
-                    <td class="deviation positive">&#43;0.02%</td>
-                    <td>0.00%</td>
-                    <td>0s</td>
-                    <td><span class="status pass">✓ PASS</span></td>
-                </tr>
-                
-                <tr>
-                    <td>T002</td>
-                    <td>4p×10Mb/1450b/10ms</td>
-                    <td>40 Mb/s</td>
-                    <td>40.00 Mb/s</td>
-                    <td class="deviation positive">&#43;0.01%</td>
-                    <td>0.00%</td>
-                    <td>0s</td>
-                    <td><span class="status pass">✓ PASS</span></td>
-                </tr>
-                
-                <tr>
-                    <td>T003</td>
-                    <td>4p×50Mb/1450b/10ms</td>
-                    <td>200 Mb/s</td>
-                    <td>200.01 Mb/s</td>
-                    <td class="deviation positive">&#43;0.01%</td>
-                    <td>0.00%</td>
-                    <td>0s</td>
-                    <td><span class="status pass">✓ PASS</span></td>
-                </tr>
-                
-                <tr>
-                    <td>T004</td>
-                    <td>8p×50Mb/1450b/10ms</td>
-                    <td>400 Mb/s</td>
-                    <td>400.00 Mb/s</td>
+                    <td>8p×125Mb/1450b/5ms</td>
+                    <td>1000 Mb/s</td>
+                    <td>999.98 Mb/s</td>
                     <td class="deviation negative">-0.00%</td>
                     <td>0.00%</td>
                     <td>0s</td>
@@ -354,8 +321,8 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">cpu</span></h3>
-                <span>Total: 39.82s</span>
+                <h3>T001 <span class="profile-type">cpu</span></h3>
+                <span>Total: 79.63s</span>
             </div>
             
             <table>
@@ -374,46 +341,46 @@
                     <tr>
                         <td>1</td>
                         <td><span class="function-name">time.runtimeNow</span></td>
-                        <td>38.10s</td>
-                        <td>95.7%</td>
-                        <td>38.10s</td>
-                        <td>95.7%</td>
+                        <td>74.69s</td>
+                        <td>93.8%</td>
+                        <td>74.69s</td>
+                        <td>93.8%</td>
                     </tr>
                     
                     <tr>
                         <td>2</td>
                         <td><span class="function-name">time.now</span></td>
-                        <td>0.64s</td>
-                        <td>1.6%</td>
-                        <td>0.64s</td>
-                        <td>1.6%</td>
+                        <td>1.53s</td>
+                        <td>1.9%</td>
+                        <td>1.53s</td>
+                        <td>1.9%</td>
                     </tr>
                     
                     <tr>
                         <td>3</td>
                         <td><span class="function-name">time.Now</span></td>
-                        <td>0.59s</td>
-                        <td>1.5%</td>
-                        <td>38.69s</td>
-                        <td>97.2%</td>
+                        <td>1.35s</td>
+                        <td>1.7%</td>
+                        <td>76.05s</td>
+                        <td>95.5%</td>
                     </tr>
                     
                     <tr>
                         <td>4</td>
-                        <td><span class="function-name">time.Time.UnixNano (inline)</span></td>
-                        <td>0.19s</td>
+                        <td><span class="function-name">time.(*Time).sec (inline)</span></td>
+                        <td>0.40s</td>
                         <td>0.5%</td>
-                        <td>0.37s</td>
-                        <td>0.9%</td>
+                        <td>0.40s</td>
+                        <td>0.5%</td>
                     </tr>
                     
                     <tr>
                         <td>5</td>
-                        <td><span class="function-name">main.producer</span></td>
-                        <td>0.05s</td>
-                        <td>0.1%</td>
-                        <td>39.11s</td>
-                        <td>98.2%</td>
+                        <td><span class="function-name">time.Time.UnixNano</span></td>
+                        <td>0.27s</td>
+                        <td>0.3%</td>
+                        <td>0.76s</td>
+                        <td>0.9%</td>
                     </tr>
                     
                 </tbody>
@@ -423,8 +390,8 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">mem</span></h3>
-                <span>Total: 3.66MB</span>
+                <h3>T001 <span class="profile-type">mem</span></h3>
+                <span>Total: 4.91MB</span>
             </div>
             
             <table>
@@ -443,46 +410,46 @@
                     <tr>
                         <td>1</td>
                         <td><span class="function-name">main.main.func1</span></td>
-                        <td>3.32MB</td>
-                        <td>90.7%</td>
-                        <td>3.32MB</td>
-                        <td>90.7%</td>
+                        <td>4.63MB</td>
+                        <td>94.3%</td>
+                        <td>4.63MB</td>
+                        <td>94.3%</td>
                     </tr>
                     
                     <tr>
                         <td>2</td>
-                        <td><span class="function-name">sync.(*poolChain).pushHead</span></td>
-                        <td>0.14MB</td>
-                        <td>3.9%</td>
-                        <td>0.14MB</td>
-                        <td>3.9%</td>
+                        <td><span class="function-name">runtime.allocm</span></td>
+                        <td>0.06MB</td>
+                        <td>1.2%</td>
+                        <td>0.10MB</td>
+                        <td>2.1%</td>
                     </tr>
                     
                     <tr>
                         <td>3</td>
                         <td><span class="function-name">github.com/google/btree.(*items[go.shape.interface { Less(github.com/google/btree.Item) bool }]).insertAt</span></td>
-                        <td>0.07MB</td>
-                        <td>1.8%</td>
-                        <td>0.07MB</td>
-                        <td>1.8%</td>
+                        <td>0.04MB</td>
+                        <td>0.9%</td>
+                        <td>0.04MB</td>
+                        <td>0.9%</td>
                     </tr>
                     
                     <tr>
                         <td>4</td>
-                        <td><span class="function-name">main.init.func1</span></td>
+                        <td><span class="function-name">runtime.malg</span></td>
                         <td>0.04MB</td>
-                        <td>1.1%</td>
+                        <td>0.8%</td>
                         <td>0.04MB</td>
-                        <td>1.1%</td>
+                        <td>0.8%</td>
                     </tr>
                     
                     <tr>
                         <td>5</td>
-                        <td><span class="function-name">sync.(*Pool).pinSlow</span></td>
-                        <td>0.02MB</td>
-                        <td>0.6%</td>
-                        <td>0.02MB</td>
-                        <td>0.6%</td>
+                        <td><span class="function-name">main.init.func1</span></td>
+                        <td>0.04MB</td>
+                        <td>0.8%</td>
+                        <td>0.04MB</td>
+                        <td>0.8%</td>
                     </tr>
                     
                 </tbody>
@@ -492,7 +459,7 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">allocs</span></h3>
+                <h3>T001 <span class="profile-type">allocs</span></h3>
                 <span>Total: </span>
             </div>
             
@@ -511,47 +478,47 @@
                     
                     <tr>
                         <td>1</td>
-                        <td><span class="function-name">compress/flate.(*huffmanEncoder).generate</span></td>
-                        <td>1</td>
-                        <td>14.3%</td>
-                        <td>1</td>
-                        <td>14.3%</td>
+                        <td><span class="function-name">main.main.func1</span></td>
+                        <td>3</td>
+                        <td>33.3%</td>
+                        <td>3</td>
+                        <td>33.3%</td>
                     </tr>
                     
                     <tr>
                         <td>2</td>
-                        <td><span class="function-name">github.com/google/btree.(*items[go.shape.interface { Less(github.com/google/btree.Item) bool }]).insertAt</span></td>
-                        <td>1</td>
-                        <td>14.3%</td>
-                        <td>1</td>
-                        <td>14.3%</td>
+                        <td><span class="function-name">runtime.allocm</span></td>
+                        <td>2</td>
+                        <td>22.2%</td>
+                        <td>2</td>
+                        <td>22.2%</td>
                     </tr>
                     
                     <tr>
                         <td>3</td>
                         <td><span class="function-name">github.com/pkg/profile.Start</span></td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                     </tr>
                     
                     <tr>
                         <td>4</td>
-                        <td><span class="function-name">github.com/randomizedcoder/go-lock-free-ring.NewShardedRing</span></td>
+                        <td><span class="function-name">runtime.acquireSudog</span></td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                     </tr>
                     
                     <tr>
                         <td>5</td>
-                        <td><span class="function-name">main.main.func1</span></td>
+                        <td><span class="function-name">sync.(*Pool).pinSlow</span></td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                         <td>1</td>
-                        <td>14.3%</td>
+                        <td>11.1%</td>
                     </tr>
                     
                 </tbody>
@@ -561,8 +528,8 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">heap</span></h3>
-                <span>Total: 7872B</span>
+                <h3>T001 <span class="profile-type">heap</span></h3>
+                <span>Total: 21376B</span>
             </div>
             
             <table>
@@ -581,46 +548,46 @@
                     <tr>
                         <td>1</td>
                         <td><span class="function-name">main.main.func1</span></td>
-                        <td>3072B</td>
-                        <td>39.0%</td>
-                        <td>3072B</td>
-                        <td>39.0%</td>
+                        <td>9216B</td>
+                        <td>43.1%</td>
+                        <td>9216B</td>
+                        <td>43.1%</td>
                     </tr>
                     
                     <tr>
                         <td>2</td>
-                        <td><span class="function-name">compress/flate.(*huffmanEncoder).generate</span></td>
-                        <td>2304B</td>
-                        <td>29.3%</td>
-                        <td>2304B</td>
-                        <td>29.3%</td>
+                        <td><span class="function-name">unicode.map.init.2</span></td>
+                        <td>6528B</td>
+                        <td>30.5%</td>
+                        <td>6528B</td>
+                        <td>30.5%</td>
                     </tr>
                     
                     <tr>
                         <td>3</td>
                         <td><span class="function-name">runtime.allocm</span></td>
-                        <td>2048B</td>
-                        <td>26.0%</td>
-                        <td>2048B</td>
-                        <td>26.0%</td>
+                        <td>4096B</td>
+                        <td>19.2%</td>
+                        <td>4096B</td>
+                        <td>19.2%</td>
                     </tr>
                     
                     <tr>
                         <td>4</td>
-                        <td><span class="function-name">runtime.malg</span></td>
-                        <td>448B</td>
-                        <td>5.7%</td>
-                        <td>448B</td>
-                        <td>5.7%</td>
+                        <td><span class="function-name">github.com/google/btree.(*items[go.shape.interface { Less(github.com/google/btree.Item) bool }]).insertAt</span></td>
+                        <td>1152B</td>
+                        <td>5.4%</td>
+                        <td>1152B</td>
+                        <td>5.4%</td>
                     </tr>
                     
                     <tr>
                         <td>5</td>
-                        <td><span class="function-name">compress/flate.init.0</span></td>
-                        <td>0</td>
-                        <td>0.0%</td>
-                        <td>2304B</td>
-                        <td>29.3%</td>
+                        <td><span class="function-name">crypto/internal/impl.Register</span></td>
+                        <td>384B</td>
+                        <td>1.8%</td>
+                        <td>384B</td>
+                        <td>1.8%</td>
                     </tr>
                     
                 </tbody>
@@ -630,8 +597,8 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">mutex</span></h3>
-                <span>Total: 1040.77us</span>
+                <h3>T001 <span class="profile-type">mutex</span></h3>
+                <span>Total: 11.99ms</span>
             </div>
             
             <table>
@@ -650,46 +617,46 @@
                     <tr>
                         <td>1</td>
                         <td><span class="function-name">runtime.unlock (inline)</span></td>
-                        <td>953.52us</td>
-                        <td>91.6%</td>
-                        <td>953.52us</td>
-                        <td>91.6%</td>
+                        <td>11.20ms</td>
+                        <td>93.4%</td>
+                        <td>11.20ms</td>
+                        <td>93.4%</td>
                     </tr>
                     
                     <tr>
                         <td>2</td>
                         <td><span class="function-name">runtime._LostContendedRuntimeLock</span></td>
-                        <td>87.25us</td>
-                        <td>8.4%</td>
-                        <td>87.25us</td>
-                        <td>8.4%</td>
+                        <td>0.79ms</td>
+                        <td>6.6%</td>
+                        <td>0.79ms</td>
+                        <td>6.6%</td>
                     </tr>
                     
                     <tr>
                         <td>3</td>
-                        <td><span class="function-name">main.main.func1</span></td>
+                        <td><span class="function-name">main.consumer</span></td>
                         <td>0</td>
                         <td>0.0%</td>
-                        <td>85.22us</td>
-                        <td>8.2%</td>
+                        <td>0.09ms</td>
+                        <td>0.7%</td>
                     </tr>
                     
                     <tr>
                         <td>4</td>
-                        <td><span class="function-name">main.producer</span></td>
+                        <td><span class="function-name">main.main.func1</span></td>
                         <td>0</td>
                         <td>0.0%</td>
-                        <td>85.22us</td>
-                        <td>8.2%</td>
+                        <td>0.23ms</td>
+                        <td>1.9%</td>
                     </tr>
                     
                     <tr>
                         <td>5</td>
-                        <td><span class="function-name">runtime.(*timer).unlockAndRun</span></td>
+                        <td><span class="function-name">main.producer</span></td>
                         <td>0</td>
                         <td>0.0%</td>
-                        <td>12.58us</td>
-                        <td>1.2%</td>
+                        <td>0.24ms</td>
+                        <td>2.0%</td>
                     </tr>
                     
                 </tbody>
@@ -699,8 +666,8 @@
         
         <div class="profile-section">
             <div class="profile-header">
-                <h3>T003 <span class="profile-type">block</span></h3>
-                <span>Total: 39.94s</span>
+                <h3>T001 <span class="profile-type">block</span></h3>
+                <span>Total: 39.64s</span>
             </div>
             
             <table>
@@ -719,9 +686,9 @@
                     <tr>
                         <td>1</td>
                         <td><span class="function-name">runtime.selectgo</span></td>
-                        <td>39.94s</td>
+                        <td>39.64s</td>
                         <td>100.0%</td>
-                        <td>39.94s</td>
+                        <td>39.64s</td>
                         <td>100.0%</td>
                     </tr>
                     
@@ -730,8 +697,8 @@
                         <td><span class="function-name">main.consumer</span></td>
                         <td>0</td>
                         <td>0.0%</td>
-                        <td>9.94s</td>
-                        <td>24.9%</td>
+                        <td>9.64s</td>
+                        <td>24.3%</td>
                     </tr>
                     
                     <tr>
@@ -740,7 +707,7 @@
                         <td>0</td>
                         <td>0.0%</td>
                         <td>10s</td>
-                        <td>25.0%</td>
+                        <td>25.2%</td>
                     </tr>
                     
                     <tr>
@@ -748,8 +715,8 @@
                         <td><span class="function-name">main.main.gowrap2</span></td>
                         <td>0</td>
                         <td>0.0%</td>
-                        <td>9.94s</td>
-                        <td>24.9%</td>
+                        <td>9.64s</td>
+                        <td>24.3%</td>
                     </tr>
                     
                     <tr>
@@ -758,7 +725,7 @@
                         <td>0</td>
                         <td>0.0%</td>
                         <td>10s</td>
-                        <td>25.0%</td>
+                        <td>25.2%</td>
                     </tr>
                     
                 </tbody>
@@ -775,7 +742,7 @@
         <div class="recommendations">
             <ul>
                 
-                <li>Mutex contention in runtime.unlock (inline) (91.6%) - consider lock-free alternatives or finer-grained locking</li>
+                <li>Mutex contention in runtime.unlock (inline) (93.4%) - consider lock-free alternatives or finer-grained locking</li>
                 
             </ul>
         </div>

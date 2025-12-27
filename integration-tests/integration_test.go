@@ -62,8 +62,8 @@ func TestIntegration(t *testing.T) {
 		cfg := DefaultTestMatrixConfig()
 		// Limit full tests to reasonable subset
 		tests = GenerateTestCasesFiltered(cfg, CombineFilters(
-			FilterByPacketSize(1450),          // Standard packets only
-			FilterByMaxRate(400),              // Limit max rate
+			FilterByPacketSize(1450), // Standard packets only
+			FilterByMaxRate(400),     // Limit max rate
 		))
 	default:
 		// Try to get predefined set
@@ -383,15 +383,11 @@ func TestIntegrationWithProfiling(t *testing.T) {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
 
-	// Get test cases - use a smaller set for profiling
-	var tests []TestCase
-	switch *testSet {
-	case "smoke":
-		tests, _ = GetPredefinedTestSet("smoke")
-	case "quick":
-		tests, _ = GetPredefinedTestSet("quick")
-	default:
-		// For profiling, default to smoke tests
+	// Get test cases - use the specified test set
+	tests, ok := GetPredefinedTestSet(*testSet)
+	if !ok || len(tests) == 0 {
+		// Fall back to smoke tests if test set not found
+		t.Logf("Warning: test set '%s' not found, falling back to 'smoke'", *testSet)
 		tests, _ = GetPredefinedTestSet("smoke")
 	}
 
@@ -492,6 +488,119 @@ func TestIntegrationWithProfiling(t *testing.T) {
 
 	// Print simple report
 	t.Log("\n" + GenerateSimpleReport(suiteResult, allAnalyses))
+}
+
+// TestStrategyComparison runs strategy comparison tests
+func TestStrategyComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping strategy comparison tests in short mode")
+	}
+
+	// Find project root and build binary
+	projectRoot, err := FindProjectRoot()
+	if err != nil {
+		t.Fatalf("Failed to find project root: %v", err)
+	}
+
+	binaryPath, err := BuildBinary(projectRoot)
+	if err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+	t.Logf("Built binary: %s", binaryPath)
+
+	// Setup output directory
+	outDir := *outputDir
+	if outDir == "" {
+		outDir = filepath.Join(projectRoot, "integration-tests", "output")
+	}
+
+	executor, err := NewExecutor(binaryPath, outDir)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Get test cases based on test set
+	var tests []TestCase
+	switch *testSet {
+	case "strategy-quick":
+		tests, _ = GetPredefinedTestSet("strategy-quick")
+	case "strategy-standard":
+		tests, _ = GetPredefinedTestSet("strategy-standard")
+	case "strategy-contention":
+		tests, _ = GetPredefinedTestSet("strategy-contention")
+	case "strategy-throughput":
+		tests, _ = GetPredefinedTestSet("strategy-throughput")
+	default:
+		// Default to strategy-quick
+		tests, _ = GetPredefinedTestSet("strategy-quick")
+	}
+
+	if len(tests) == 0 {
+		t.Fatal("No test cases to run")
+	}
+
+	t.Logf("Running %d strategy comparison tests from set '%s'", len(tests), *testSet)
+
+	// Print test matrix info
+	strategies := make(map[string]int)
+	gomaxprocsVals := make(map[int]int)
+	for _, tc := range tests {
+		strategies[tc.Strategy]++
+		gomaxprocsVals[tc.GOMAXPROCS]++
+	}
+	t.Logf("Strategies: %v", strategies)
+	t.Logf("GOMAXPROCS values: %v", gomaxprocsVals)
+
+	ctx := context.Background()
+
+	// Run strategy comparison
+	result, err := RunStrategyComparison(ctx, executor, tests)
+	if err != nil {
+		t.Fatalf("Strategy comparison failed: %v", err)
+	}
+
+	// Log summary
+	passed := 0
+	for _, tr := range result.TestResults {
+		if tr.Passed {
+			passed++
+		}
+	}
+	t.Logf("Completed: %d/%d tests passed (%.1f%%)", passed, len(result.TestResults),
+		float64(passed)/float64(len(result.TestResults))*100)
+
+	// Log strategy summary
+	t.Log("\n=== Strategy Summary ===")
+	for strategy, sm := range result.ByStrategy {
+		t.Logf("%-15s: Pass=%.1f%%, Throughput=%.1f%%, Drop=%.2f%%",
+			strategy, sm.PassRate(), sm.ThroughputEfficiency(), sm.AvgDropRate)
+	}
+
+	// Log GOMAXPROCS impact if multiple values tested
+	if len(result.ByGOMAXPROCS) > 1 {
+		t.Log("\n=== GOMAXPROCS Impact ===")
+		for gmp, sm := range result.ByGOMAXPROCS {
+			label := fmt.Sprintf("%d", gmp)
+			if gmp == 0 {
+				label = "default"
+			}
+			t.Logf("GOMAXPROCS=%s: Pass=%.1f%%, Throughput=%.1f%%, Drop=%.2f%%",
+				label, sm.PassRate(), sm.ThroughputEfficiency(), sm.AvgDropRate)
+		}
+	}
+
+	// Generate report if requested
+	if *generateReport {
+		reportPath, err := GenerateStrategyComparisonReport(result, outDir)
+		if err != nil {
+			t.Logf("Warning: Failed to generate strategy report: %v", err)
+		} else {
+			t.Logf("Strategy comparison report generated: %s", reportPath)
+		}
+	}
+
+	// Print text report
+	t.Log("\n" + GenerateSimpleStrategyReport(result))
 }
 
 // TestProfileAnalyzer tests the profile analyzer with a sample profile
@@ -635,4 +744,3 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	os.Exit(m.Run())
 }
-

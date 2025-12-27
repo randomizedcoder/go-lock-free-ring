@@ -58,6 +58,7 @@ This pattern is typical for network packet capture/analysis (RTP, SRT) where pac
 | `-btreeSize` | int | 2000 | Maximum packets to keep in B-tree (rolling window) |
 | `-btreeDegree` | int | 32 | B-tree degree (branching factor) |
 | `-frequency` | int | 10 | Consumer wake interval in milliseconds |
+| `-strategy` | string | "sleep" | Retry strategy: sleep, next, random, adaptive, spin, hybrid |
 | `-backoff` | duration | 10ms | Backoff sleep duration when ring is full |
 | `-maxRetries` | int | 10 | Write retries before backoff sleep |
 | `-maxBackoffs` | int | 100 | Maximum backoff attempts before dropping |
@@ -66,6 +67,71 @@ This pattern is typical for network packet capture/analysis (RTP, SRT) where pac
 | `-profile` | string | "" | Profiling mode (cpu, mem, allocs, heap, mutex, block, trace) |
 | `-profilepath` | string | "." | Directory for profile output |
 | `-debugLevel` | int | 3 | Log verbosity (0=silent, 7=trace) |
+
+## Retry Strategies
+
+The `-strategy` flag controls how the ring buffer handles full shards. Six strategies are available:
+
+| Strategy | Flag Value | Description | Best For |
+|----------|------------|-------------|----------|
+| **SleepBackoff** | `sleep` | Retry same shard, then sleep (original behavior) | Low-moderate throughput, CPU efficiency |
+| **NextShard** | `next` | Try all shards round-robin before sleeping | Multi-producer, moderate contention |
+| **RandomShard** | `random` | Try random shards before sleeping | Many producers, high contention |
+| **AdaptiveBackoff** | `adaptive` | Exponential backoff with jitter | Variable load, production workloads |
+| **SpinThenYield** | `spin` | Yield CPU (`runtime.Gosched()`) instead of sleeping | Ultra-low latency requirements |
+| **Hybrid** | `hybrid` | NextShard + AdaptiveBackoff | Best overall throughput |
+
+### Strategy Selection Guide
+
+```
+                     ┌─────────────────────────┐
+                     │ Is latency critical?    │
+                     └───────────┬─────────────┘
+                          yes /   \ no
+                             /     \
+              ┌─────────────┐       ┌─────────────┐
+              │ Use "spin"  │       │ Many        │
+              │ SpinYield   │       │ producers?  │
+              └─────────────┘       └──────┬──────┘
+                                    yes /   \ no
+                                       /     \
+                        ┌─────────────┐       ┌─────────────┐
+                        │ Use "hybrid"│       │ Use "sleep" │
+                        │ or "random" │       │ SleepBackoff│
+                        └─────────────┘       └─────────────┘
+```
+
+### Recommendations
+
+| Scenario | Recommended Strategy |
+|----------|---------------------|
+| **Default / General use** | `sleep` (simple, CPU-efficient) |
+| **High throughput (4+ producers)** | `hybrid` or `random` |
+| **Low latency requirements** | `spin` |
+| **Variable/bursty load** | `adaptive` |
+| **Maximum throughput** | `hybrid` |
+
+### Strategy Usage Examples
+
+```bash
+# Default strategy (SleepBackoff)
+./ring -producers=4 -rate=10 -duration=10s
+
+# Explicit SleepBackoff
+./ring -producers=4 -rate=10 -strategy=sleep -duration=10s
+
+# High throughput with Hybrid strategy
+./ring -producers=8 -rate=100 -strategy=hybrid -duration=30s
+
+# Low latency with SpinYield
+./ring -producers=4 -rate=50 -strategy=spin -duration=10s
+
+# Many producers with RandomShard
+./ring -producers=16 -rate=50 -strategy=random -duration=30s
+
+# Variable load with AdaptiveBackoff
+./ring -producers=8 -rate=75 -strategy=adaptive -duration=60s
+```
 
 ## Automatic Ring Size Calculation
 
@@ -230,9 +296,28 @@ var pktPool = sync.Pool{
 
 ```go
 var writeConfig = ring.WriteConfig{
-    MaxRetries:      *maxRetries,     // default: 10
-    BackoffDuration: *backoff,         // default: 10ms
-    MaxBackoffs:     *maxBackoffs,     // default: 100
+    Strategy:        parseStrategy(*strategy), // default: SleepBackoff
+    MaxRetries:      *maxRetries,              // default: 10
+    BackoffDuration: *backoff,                 // default: 10ms
+    MaxBackoffs:     *maxBackoffs,             // default: 100
+}
+
+// parseStrategy converts flag string to RetryStrategy
+func parseStrategy(s string) ring.RetryStrategy {
+    switch s {
+    case "next":
+        return ring.NextShard
+    case "random":
+        return ring.RandomShard
+    case "adaptive":
+        return ring.AdaptiveBackoff
+    case "spin":
+        return ring.SpinThenYield
+    case "hybrid":
+        return ring.Hybrid
+    default:
+        return ring.SleepBackoff
+    }
 }
 ```
 
@@ -386,14 +471,15 @@ var (
     btreeSize      = flag.Int("btreeSize", 2000, "Maximum packets in B-tree")
     btreeDegree    = flag.Int("btreeDegree", 32, "B-tree branching factor")
     frequency      = flag.Int("frequency", 10, "Consumer wake interval (ms)")
+    strategy       = flag.String("strategy", "sleep", "Retry strategy: sleep, next, random, adaptive, spin, hybrid")
     backoff        = flag.Duration("backoff", 10*time.Millisecond, "Backoff duration")
     maxRetries     = flag.Int("maxRetries", 10, "Retries before backoff")
-    maxBackoffs   = flag.Int("maxBackoffs", 100, "Max backoffs before drop")
-    statsInterval = flag.Int("statsInterval", 1, "Stats logging interval (seconds)")
-    duration      = flag.Duration("duration", 0, "Run duration (0=until signal)")
-    profileFlag   = flag.String("profile", "", "Profiling mode")
-    profilePath   = flag.String("profilepath", ".", "Profile output directory")
-    debugLevel    = flag.Int("debugLevel", 3, "Log verbosity (0-7)")
+    maxBackoffs    = flag.Int("maxBackoffs", 100, "Max backoffs before drop")
+    statsInterval  = flag.Int("statsInterval", 1, "Stats logging interval (seconds)")
+    duration       = flag.Duration("duration", 0, "Run duration (0=until signal)")
+    profileFlag    = flag.String("profile", "", "Profiling mode")
+    profilePath    = flag.String("profilepath", ".", "Profile output directory")
+    debugLevel     = flag.Int("debugLevel", 3, "Log verbosity (0-7)")
 
     // Global counters (atomic)
     producedCount atomic.Uint64
@@ -811,16 +897,58 @@ func TestCalculateRingSizeEdgeCases(t *testing.T) {
 
 # Run until interrupted (Ctrl+C)
 ./ring -producers=4 -rate=10
+
+# === Strategy Examples ===
+
+# High throughput with Hybrid strategy (recommended for 4+ producers)
+./ring -producers=8 -rate=100 -strategy=hybrid -duration=30s
+
+# 1 Gbps throughput demo (8 producers × 125 Mb/s)
+./ring -producers=8 -rate=125 -strategy=sleep -frequency=5 -duration=10s
+
+# Low latency with SpinYield strategy
+./ring -producers=4 -rate=50 -strategy=spin -duration=10s
+
+# Many producers with RandomShard to reduce contention
+./ring -producers=16 -rate=50 -strategy=random -duration=30s
+
+# Variable load with AdaptiveBackoff
+./ring -producers=8 -rate=75 -strategy=adaptive -duration=60s
+
+# Compare strategies: run multiple tests
+for s in sleep next random adaptive spin hybrid; do
+  echo "=== Testing strategy: $s ==="
+  ./ring -producers=8 -rate=50 -strategy=$s -duration=10s 2>&1 | tail -5
+done
 ```
 
 ## Test Configurations
 
 Reference configurations for integration tests (using auto ring sizing):
 
-| Test | packetSize | rate | producers | ringSize | expected auto | ringShards | btreeSize | frequency |
-|------|------------|------|-----------|----------|---------------|------------|-----------|-----------|
-| test0 | 1450 | 1 | 4 | 0 (auto) | 64 | 4 | 2000 | 50 |
-| test1 | 1450 | 10 | 4 | 0 (auto) | 128 | 4 | 2000 | 10 |
-| test2 | 1450 | 50 | 4 | 0 (auto) | 512 | 4 | 2000 | 10 |
-| test3 | 1450 | 50 | 10 | 0 (auto) | 1024 | 8 | 2000 | 10 |
-| test4 | 1450 | 100 | 16 | 0 (auto) | 4096 | 16 | 5000 | 10 |
+| Test | packetSize | rate | producers | ringSize | expected auto | ringShards | btreeSize | frequency | strategy |
+|------|------------|------|-----------|----------|---------------|------------|-----------|-----------|----------|
+| test0 | 1450 | 1 | 4 | 0 (auto) | 64 | 4 | 2000 | 50 | sleep |
+| test1 | 1450 | 10 | 4 | 0 (auto) | 128 | 4 | 2000 | 10 | sleep |
+| test2 | 1450 | 50 | 4 | 0 (auto) | 512 | 4 | 2000 | 10 | sleep |
+| test3 | 1450 | 50 | 10 | 0 (auto) | 1024 | 8 | 2000 | 10 | hybrid |
+| test4 | 1450 | 100 | 16 | 0 (auto) | 4096 | 16 | 5000 | 10 | hybrid |
+| 1gbps | 1450 | 125 | 8 | 0 (auto) | 2048 | 4 | 4000 | 5 | sleep |
+
+### Integration Test Targets
+
+Run integration tests using the Makefile:
+
+```bash
+# Quick smoke tests (40-400 Mb/s)
+make test-integration
+
+# 1 Gbps throughput demo
+make test-integration-1gbps
+
+# 1 Gbps with profiling and HTML report
+make test-integration-profile-1gbps
+
+# Full test suite
+make test-integration-standard
+```

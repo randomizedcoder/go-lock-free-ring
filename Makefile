@@ -7,6 +7,7 @@
 .PHONY: test test-verbose test-race test-coverage test-cmd test-datagen test-datagen-short
 .PHONY: test-integration test-integration-smoke test-integration-standard test-integration-full test-integration-unit
 .PHONY: test-integration-profile test-integration-profile-all test-integration-profile-200mbps test-integration-profile-400mbps test-integration-report
+.PHONY: test-strategy-quick test-strategy-standard test-strategy-contention test-strategy-throughput
 
 # Benchmark targets
 .PHONY: bench bench-short bench-cpu bench-mem bench-pattern bench-falsesharing bench-padding
@@ -80,9 +81,40 @@ test-integration-profile-200mbps:
 test-integration-profile-400mbps:
 	go test -v -timeout=60m -count=1 -run "TestIntegrationWithProfiling/T004" ./integration-tests/ -args -profile=all -testset=quick -report
 
+# Profile the 8 producers × 125 Mb/s test (1 Gbps total)
+# Great for demonstrating high-throughput capability
+# Duration: ~15s, generates HTML report
+test-integration-profile-1gbps:
+	go test -v -timeout=60m -count=1 -run "TestIntegrationWithProfiling/T001" ./integration-tests/ -args -profile=all -testset=gbps -report
+
+# Quick 1 Gbps throughput demo (no profiling, just shows throughput)
+# Use this for quick validation of high-throughput performance
+test-integration-1gbps:
+	go test -v -timeout=30m -count=1 -run "TestIntegration/T001" ./integration-tests/ -args -testset=gbps
+
 # Generate integration test report from quick tests
 test-integration-report:
 	go test -v -timeout=30m -count=1 -run TestIntegration ./integration-tests/ -args -testset=quick -report
+
+# =============================================================================
+# Strategy Comparison Tests
+# =============================================================================
+
+# Quick strategy comparison (~1 min): 3 strategies × 1 config
+test-strategy-quick: build-cmd
+	go test -v -timeout=10m -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-quick -report
+
+# Standard strategy comparison (~5 min): all 6 strategies × 4 configs
+test-strategy-standard: build-cmd
+	go test -v -timeout=30m -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-standard -report
+
+# Contention strategy comparison (~15 min): all strategies × GOMAXPROCS variations
+test-strategy-contention: build-cmd
+	go test -v -timeout=60m -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-contention -report
+
+# High-throughput strategy comparison (~20 min): all strategies × high load
+test-strategy-throughput: build-cmd
+	go test -v -timeout=60m -count=1 -run TestStrategyComparison ./integration-tests/ -args -testset=strategy-throughput -report
 
 # Run the example command with defaults for 5 seconds
 run-cmd: build-cmd
@@ -193,7 +225,15 @@ help:
 	@echo "  test-integration-profile-all - Run with all profile types (4p×10Mb)"
 	@echo "  test-integration-profile-200mbps - Profile 4p×50Mb (200Mb/s)"
 	@echo "  test-integration-profile-400mbps - Profile 8p×50Mb (400Mb/s)"
+	@echo "  test-integration-profile-1gbps - Profile 8p×125Mb (1 Gbps) with HTML report"
+	@echo "  test-integration-1gbps - Quick 1 Gbps throughput demo"
 	@echo "  test-integration-report - Generate HTML report"
+	@echo ""
+	@echo "Strategy comparison:"
+	@echo "  test-strategy-quick      - Quick comparison (~1 min)"
+	@echo "  test-strategy-standard   - Standard comparison (~5 min)"
+	@echo "  test-strategy-contention - Contention test with GOMAXPROCS (~15 min)"
+	@echo "  test-strategy-throughput - High-throughput comparison (~20 min)"
 	@echo ""
 	@echo "Benchmark:"
 	@echo "  bench          - Run all benchmarks"

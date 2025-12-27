@@ -15,7 +15,7 @@ mem.prof
 *.pprof
 
 # Integration test outputs
-#integration-tests/output/
+integration-tests/output/
 
 # IDE and editor files
 .vscode/

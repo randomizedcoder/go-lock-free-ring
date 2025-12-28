@@ -428,6 +428,22 @@ func (r *ShardedRing) ReadBatch(maxItems int) []any {
 
 The ring library is designed to work with `sync.Pool` for efficient memory reuse:
 
+> **⚠️ Important: Use Pointer Types for Zero-Allocation**
+>
+> Always store **pointer types** (e.g., `*Packet`) in the ring, not value types (e.g., `int`, `string`).
+> Storing value types in an `any` interface causes **boxing allocations** on every write.
+> With pointer types, the ring achieves true zero-allocation steady-state operation.
+>
+> ```go
+> // ❌ Bad: causes boxing allocation on every Write
+> ring.Write(id, 42)
+> ring.Write(id, "hello")
+>
+> // ✅ Good: no allocation (pointer already on heap)
+> ring.Write(id, &myPacket)
+> ring.Write(id, pooledBuffer)
+> ```
+
 #### Producer Side
 
 ```go

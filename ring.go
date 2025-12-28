@@ -36,9 +36,10 @@ type Shard struct {
 
 // ShardedRing is a sharded lock-free MPSC ring buffer
 type ShardedRing struct {
-	shards    []*Shard
-	numShards uint64
-	mask      uint64
+	shards         []*Shard
+	numShards      uint64
+	mask           uint64
+	readStartShard uint64 // Rotating start position for fair shard reading (single consumer, no atomic needed)
 }
 
 // NewShardedRing creates a new sharded ring buffer
@@ -123,9 +124,13 @@ func (s *Shard) write(value any) bool {
 
 // TryRead attempts to read one item from any shard
 // Returns the value and true if an item was read, nil and false if all shards are empty
+// Uses a rotating start position to ensure fair distribution across shards
 func (r *ShardedRing) TryRead() (any, bool) {
+	start := r.readStartShard
+	r.readStartShard++
 	for i := uint64(0); i < r.numShards; i++ {
-		if val, ok := r.shards[i].tryRead(); ok {
+		idx := (start + i) & r.mask
+		if val, ok := r.shards[idx].tryRead(); ok {
 			return val, true
 		}
 	}
@@ -170,6 +175,7 @@ func (r *ShardedRing) ReadBatch(maxItems int) []any {
 // ReadBatchInto reads up to maxItems into the provided slice (for zero-alloc operation)
 // The slice is reset to length 0, then items are appended up to maxItems
 // Returns the slice with items read (may be empty if ring is empty)
+// Uses a rotating start position to ensure fair distribution across shards
 // Usage with sync.Pool:
 //
 //	buf := pool.Get().([]any)[:0]
@@ -178,10 +184,13 @@ func (r *ShardedRing) ReadBatch(maxItems int) []any {
 //	pool.Put(buf)
 func (r *ShardedRing) ReadBatchInto(buf []any, maxItems int) []any {
 	result := buf[:0]
+	start := r.readStartShard
+	r.readStartShard++
 
-	// Round-robin through all shards
+	// Round-robin through all shards starting from rotating position
 	for i := uint64(0); i < r.numShards && len(result) < maxItems; i++ {
-		shard := r.shards[i]
+		idx := (start + i) & r.mask
+		shard := r.shards[idx]
 		for len(result) < maxItems {
 			if val, ok := shard.tryRead(); ok {
 				result = append(result, val)

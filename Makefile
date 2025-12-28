@@ -42,20 +42,21 @@ test-datagen-short:
 	go test -v -short -count=1 ./data-generator/
 
 # Run integration tests (quick set - ~20s)
+# Note: ^TestIntegration$$ anchors to exact match, avoiding TestIntegrationSmoke etc.
 test-integration:
-	go test -v -count=1 -run TestIntegration ./integration-tests/ -args -testset=quick
+	go test -v -count=1 -run "^TestIntegration$$" ./integration-tests/ -args -testset=quick
 
 # Run integration smoke test (~3s)
 test-integration-smoke:
-	go test -v -count=1 -run TestIntegrationSmoke ./integration-tests/
+	go test -v -count=1 -run "^TestIntegrationSmoke$$" ./integration-tests/
 
 # Run integration tests (standard set - ~100s)
 test-integration-standard:
-	go test -v -count=1 -run TestIntegration ./integration-tests/ -args -testset=standard
+	go test -v -count=1 -run "^TestIntegration$$" ./integration-tests/ -args -testset=standard
 
 # Run integration tests (full matrix - use with caution)
 test-integration-full:
-	go test -v -timeout=60m -count=1 -run TestIntegration ./integration-tests/ -args -testset=full
+	go test -v -timeout=60m -count=1 -run "^TestIntegration$$" ./integration-tests/ -args -testset=full
 
 # Run integration config unit tests only
 test-integration-unit:
@@ -90,11 +91,11 @@ test-integration-profile-1gbps:
 # Quick 1 Gbps throughput demo (no profiling, just shows throughput)
 # Use this for quick validation of high-throughput performance
 test-integration-1gbps:
-	go test -v -timeout=30m -count=1 -run "TestIntegration/T001" ./integration-tests/ -args -testset=gbps
+	go test -v -timeout=30m -count=1 -run "^TestIntegration$$/T001" ./integration-tests/ -args -testset=gbps
 
 # Generate integration test report from quick tests
 test-integration-report:
-	go test -v -timeout=30m -count=1 -run TestIntegration ./integration-tests/ -args -testset=quick -report
+	go test -v -timeout=30m -count=1 -run "^TestIntegration$$" ./integration-tests/ -args -testset=quick -report
 
 # =============================================================================
 # Strategy Comparison Tests

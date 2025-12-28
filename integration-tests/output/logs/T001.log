@@ -1,36 +1,29 @@
 === Test: T001 ===
-Config: 8p×125Mb/1450b/5ms
-Command: /home/das/Downloads/go-lock-free-ring/bin/ring [-producers=8 -rate=125.00 -packetSize=1450 -frequency=5 -duration=10s -btreeSize=4000 -debugLevel=3 -statsInterval=1 -ringShards=8 -profile=block -profilepath=/home/das/Downloads/go-lock-free-ring/integration-tests/output/profiles]
-Start: 2025-12-27T13:06:41-08:00
-End: 2025-12-27T13:06:51-08:00
-Duration: 10.006993714s
+Config: 1p×10Mb/1450b/10ms
+Command: /home/das/Downloads/go-lock-free-ring/bin/ring [-producers=1 -rate=10.00 -packetSize=1450 -frequency=10 -duration=5s -btreeSize=2000 -debugLevel=3 -statsInterval=1]
+Start: 2025-12-27T17:47:41-08:00
+End: 2025-12-27T17:47:46-08:00
+Duration: 5.006437014s
 Exit Code: 0
 
 === STDOUT ===
 
 === STDERR ===
-2025/12/27 13:06:41 GOMAXPROCS: 24 (default)
-2025/12/27 13:06:41 Using retry strategy: SleepBackoff
-2025/12/27 13:06:41 profile: block profiling enabled, /home/das/Downloads/go-lock-free-ring/integration-tests/output/profiles/block.pprof
-2025/12/27 13:06:41 Ring size auto-calculated: 1024 (8 producers × 125.0 Mb/s, 5ms interval, 2.0x multiplier)
-2025/12/27 13:06:41 Starting: 8 producers @ 125.0 Mb/s, ring=1024/8 shards, strategy=SleepBackoff, btree max=4000, consumer every 5ms
-2025/12/27 13:06:42 [stats] inserted=86218 trimmed=82218 rate=999.69 Mb/s btree=4000 ring=16/1024 produced=86234 dropped=0
-2025/12/27 13:06:43 [stats] inserted=86215 trimmed=86215 rate=1000.05 Mb/s btree=4000 ring=13/1024 produced=172446 dropped=0
-2025/12/27 13:06:44 [stats] inserted=86230 trimmed=86230 rate=999.99 Mb/s btree=4000 ring=15/1024 produced=258678 dropped=0
-2025/12/27 13:06:45 [stats] inserted=86195 trimmed=86195 rate=999.98 Mb/s btree=4000 ring=16/1024 produced=344874 dropped=0
-2025/12/27 13:06:46 [stats] inserted=86175 trimmed=86175 rate=1000.06 Mb/s btree=4000 ring=13/1024 produced=431046 dropped=0
-2025/12/27 13:06:47 [stats] inserted=86237 trimmed=86237 rate=1000.01 Mb/s btree=4000 ring=12/1024 produced=517282 dropped=0
-2025/12/27 13:06:48 [stats] inserted=86210 trimmed=86210 rate=999.98 Mb/s btree=4000 ring=15/1024 produced=603495 dropped=0
-2025/12/27 13:06:49 [stats] inserted=86211 trimmed=86211 rate=1000.00 Mb/s btree=4000 ring=15/1024 produced=689706 dropped=0
-2025/12/27 13:06:50 [stats] inserted=86231 trimmed=86231 rate=1000.01 Mb/s btree=4000 ring=16/1024 produced=775938 dropped=0
-2025/12/27 13:06:51 Duration 10s reached, shutting down...
-2025/12/27 13:06:51 Shutdown signal received, waiting for goroutines...
-2025/12/27 13:06:51 [stats] inserted=86152 trimmed=86152 rate=1000.01 Mb/s btree=4000 ring=5/1024 produced=862079 dropped=0
-2025/12/27 13:06:51 Clean shutdown completed in 80.05µs
-2025/12/27 13:06:51 === Final Statistics ===
-2025/12/27 13:06:51 Produced: 862079
-2025/12/27 13:06:51 Dropped:  0 (0.00%)
-2025/12/27 13:06:51 Consumed: 862079
-2025/12/27 13:06:51 Trimmed:  858074
-2025/12/27 13:06:51 BTree final size: 4005
-2025/12/27 13:06:51 profile: block profiling disabled, /home/das/Downloads/go-lock-free-ring/integration-tests/output/profiles/block.pprof
+2025/12/27 17:47:41 GOMAXPROCS: 24 (default)
+2025/12/27 17:47:41 Using retry strategy: SleepBackoff
+2025/12/27 17:47:41 Ring size auto-calculated: 64 (1 producers × 10.0 Mb/s, 10ms interval, 2.0x multiplier)
+2025/12/27 17:47:41 Starting: 1 producers @ 10.0 Mb/s, ring=64/4 shards, strategy=SleepBackoff, btree max=2000, consumer every 10ms
+2025/12/27 17:47:42 [stats] inserted=863 trimmed=0 rate=10.01 Mb/s btree=863 ring=0/64 produced=863 dropped=0
+2025/12/27 17:47:43 [stats] inserted=862 trimmed=0 rate=10.00 Mb/s btree=1725 ring=0/64 produced=1725 dropped=0
+2025/12/27 17:47:44 [stats] inserted=862 trimmed=587 rate=10.00 Mb/s btree=2000 ring=0/64 produced=2587 dropped=0
+2025/12/27 17:47:45 [stats] inserted=862 trimmed=862 rate=10.00 Mb/s btree=2000 ring=0/64 produced=3449 dropped=0
+2025/12/27 17:47:46 [stats] inserted=863 trimmed=863 rate=10.01 Mb/s btree=2000 ring=0/64 produced=4312 dropped=0
+2025/12/27 17:47:46 Duration 5s reached, shutting down...
+2025/12/27 17:47:46 Shutdown signal received, waiting for goroutines...
+2025/12/27 17:47:46 Clean shutdown completed in 905.804µs
+2025/12/27 17:47:46 === Final Statistics ===
+2025/12/27 17:47:46 Produced: 4312
+2025/12/27 17:47:46 Dropped:  0 (0.00%)
+2025/12/27 17:47:46 Consumed: 4312
+2025/12/27 17:47:46 Trimmed:  2312
+2025/12/27 17:47:46 BTree final size: 2000

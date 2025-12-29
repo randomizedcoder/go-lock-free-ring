@@ -99,27 +99,36 @@ func (r *ShardedRing) Write(producerID uint64, value any) bool {
 
 // write writes a value to the shard (lock-free)
 func (s *Shard) write(value any) bool {
-	// Atomically claim the next write slot
-	pos := atomic.AddUint64(&s.writePos, 1) - 1
-	idx := pos % s.size
-	sl := &s.buffer[idx]
+	for {
+		// Load current write position
+		pos := atomic.LoadUint64(&s.writePos)
+		idx := pos % s.size
+		sl := &s.buffer[idx]
 
-	// Check if slot is available for writing
-	// Slot is available when seq == pos (initial or after consumer released it)
-	seq := atomic.LoadUint64(&sl.seq)
-	if seq != pos {
-		// Slot not available - ring is full, unclaim and return false
-		atomic.AddUint64(&s.writePos, ^uint64(0))
-		return false
+		// Check if slot is available for writing
+		// Slot is available when seq == pos (initial or after consumer released it)
+		seq := atomic.LoadUint64(&sl.seq)
+		if seq != pos {
+			// Slot not available - ring is full
+			return false
+		}
+
+		// Try to claim this position using CAS
+		// This ensures only ONE writer can claim any given position
+		if !atomic.CompareAndSwapUint64(&s.writePos, pos, pos+1) {
+			// Another writer claimed this position, retry
+			continue
+		}
+
+		// Successfully claimed - now we have exclusive access to this slot
+		// Write the value
+		sl.value = value
+
+		// Signal that this slot is ready by setting seq to pos+1
+		atomic.StoreUint64(&sl.seq, pos+1)
+
+		return true
 	}
-
-	// Write the value
-	sl.value = value
-
-	// Signal that this slot is ready by setting seq to pos+1
-	atomic.StoreUint64(&sl.seq, pos+1)
-
-	return true
 }
 
 // TryRead attempts to read one item from any shard

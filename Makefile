@@ -1,10 +1,10 @@
 # go-lock-free-ring Makefile
 
 # Build targets
-.PHONY: all build build-cmd clean
+.PHONY: all build build-cmd build-cmd-race clean
 
 # Test targets
-.PHONY: test test-verbose test-race test-coverage test-cmd test-datagen test-datagen-short
+.PHONY: test test-verbose test-race test-race-all test-race-stress test-coverage test-cmd test-datagen test-datagen-short
 .PHONY: test-integration test-integration-smoke test-integration-standard test-integration-full test-integration-unit
 .PHONY: test-integration-profile test-integration-profile-all test-integration-profile-200mbps test-integration-profile-400mbps test-integration-report
 .PHONY: test-strategy-quick test-strategy-standard test-strategy-contention test-strategy-throughput
@@ -142,6 +142,18 @@ test-verbose:
 # Run tests with race detector
 test-race:
 	go test -race -count=1 .
+
+# Run tests with race detector (all packages)
+test-race-all:
+	go test -race -count=1 ./...
+
+# Run race detector with stress testing (runs concurrent tests multiple times)
+test-race-stress:
+	go test -race -count=10 -run "Concurrent" .
+
+# Build command with race detector (for debugging race conditions)
+build-cmd-race:
+	go build -race -o bin/ring-race ./cmd/ring/
 
 # Run tests with coverage
 test-coverage:

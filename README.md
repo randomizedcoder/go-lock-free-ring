@@ -314,40 +314,56 @@ The implementation uses per-slot sequence numbers to ensure race-free operation 
 | Approach | Concurrent Write Performance |
 |----------|------------------------------|
 | Global committed counter | 11,000,000+ ns/op (500,000x slower!) |
-| Per-slot sequence | 24 ns/op ✓ |
+| Per-slot sequence (CAS-based) | ~32 ns/op ✓ |
 
-#### Write Operation (Lock-Free)
+*Note: An earlier Add-based implementation achieved ~24 ns/op but had a data race under
+extreme contention. The current CAS-based approach trades ~8 ns for correctness.*
+
+#### Write Operation (Lock-Free with CAS)
 
 ```go
 func (s *Shard) write(value any) bool {
-    // Atomically claim the next write slot
-    pos := atomic.AddUint64(&s.writePos, 1) - 1
-    idx := pos % s.size
-    sl := &s.buffer[idx]
+    for {
+        // Load current write position
+        pos := atomic.LoadUint64(&s.writePos)
+        idx := pos % s.size
+        sl := &s.buffer[idx]
 
-    // Check if slot is available (seq == pos means slot is free)
-    seq := atomic.LoadUint64(&sl.seq)
-    if seq != pos {
-        // Slot not available - ring is full
-        atomic.AddUint64(&s.writePos, ^uint64(0)) // unclaim
-        return false
+        // Check if slot is available (seq == pos means slot is free)
+        seq := atomic.LoadUint64(&sl.seq)
+        if seq != pos {
+            // Slot not available - ring is full
+            return false
+        }
+
+        // Try to claim this position using CAS
+        // This ensures only ONE writer can claim any given position
+        if !atomic.CompareAndSwapUint64(&s.writePos, pos, pos+1) {
+            // Another writer claimed this position, retry
+            continue
+        }
+
+        // Successfully claimed - write the value
+        sl.value = value
+
+        // Signal data is ready (seq = pos+1)
+        atomic.StoreUint64(&sl.seq, pos+1)
+
+        return true
     }
-
-    // Write the value
-    sl.value = value
-
-    // Signal data is ready (seq = pos+1)
-    atomic.StoreUint64(&sl.seq, pos+1)
-
-    return true
 }
 ```
 
 **Key Points**:
-- `atomic.AddUint64` claims a unique position for each producer
+- **CAS loop** ensures only one writer claims each position (race-free under high contention)
 - Slot availability is checked via sequence number, not global counter
 - Each producer can commit independently (no waiting for others)
 - The sequence update signals to the consumer that data is ready
+
+> **Design Note**: An earlier implementation used `atomic.AddUint64` to claim positions with
+> decrement-on-failure for "unclaiming". This was ~25% faster in microbenchmarks but had a
+> **data race** under extreme contention (16+ producers at high rates). The CAS approach
+> trades ~8 ns/op for correctness. See benchmark results below.
 
 #### Read Operation (Single Consumer)
 
@@ -630,6 +646,56 @@ The ring library includes comprehensive tests that verify correctness under vari
 | `BenchmarkFalseSharing` | Demonstrates cache line false sharing | `make bench-falsesharing` |
 | `BenchmarkFalseSharingContention` | Two-counter false sharing demo | `make bench-falsesharing` |
 | `BenchmarkShardPadding` | Tests optimal padding sizes (0-56 bytes) | `make bench-padding` |
+| `BenchmarkTryReadRotation` | TryRead with rotating shard start | `make bench` |
+| `BenchmarkTryReadRotationZeroAlloc` | TryRead with pointer types (zero-alloc) | `make bench` |
+
+### Benchmark Results (Reference)
+
+**Test Environment**: AMD Ryzen Threadripper PRO 3945WX 12-Cores, Go 1.21+, Linux
+
+These results serve as a baseline for future comparisons. Run `make bench` to reproduce.
+
+#### Core Operations
+
+| Benchmark | ns/op | B/op | allocs/op | Notes |
+|-----------|-------|------|-----------|-------|
+| `BenchmarkWrite` | 32.32 | 8 | 0 | Single-threaded write (CAS-based) |
+| `BenchmarkTryRead` | 30.98 | 7 | 0 | Single-threaded read |
+| `BenchmarkTryReadRotationZeroAlloc/4_shards` | 14.31 | 0 | 0 | With pointer types |
+| `BenchmarkTryReadRotationZeroAlloc/8_shards` | 28.70 | 0 | 0 | With pointer types |
+
+#### Concurrent Write Scaling
+
+| Producers | ns/op | Notes |
+|-----------|-------|-------|
+| 1 | 7.59 | Baseline |
+| 2 | 7.45 | ~1.02x |
+| 4 | 7.21 | ~1.05x |
+| 8 | 7.43 | ~1.02x |
+
+Excellent scaling - parallel writes amortize the CAS overhead.
+
+#### Contention Scenarios
+
+| Benchmark | ns/op | Notes |
+|-----------|-------|-------|
+| `BenchmarkWriteNoContention` | 16.14 | Many shards, each producer to own shard |
+| `BenchmarkWriteContention` | 208.4 | Single shard, all producers compete |
+| `BenchmarkThroughput` | 7.91 | Parallel throughput with periodic draining |
+
+**Key Insight**: Under normal operation (multiple shards), contention is minimal.
+The 208 ns/op contention case is pathological (all writers to single shard) and
+demonstrates the CAS retry overhead. Real workloads with proper sharding see ~7-16 ns/op.
+
+#### TryRead Rotation (Fair Shard Distribution)
+
+| Shards | With int boxing (ns/op) | With pointers (ns/op) | Notes |
+|--------|------------------------|----------------------|-------|
+| 4 | 25.08 | 14.31 | 43% faster with pointers |
+| 8 | 29.74 | 28.70 | ~3% faster with pointers |
+| 16 | 32.09 | - | More shards = more iteration |
+
+**Key Insight**: Using pointer types eliminates boxing allocations and improves performance.
 
 ### Implementation Challenges and Solutions
 

@@ -1,29 +1,28 @@
 === Test: T003 ===
 Config: 4p×50Mb/1450b/10ms
 Command: /home/das/Downloads/go-lock-free-ring/bin/ring [-producers=4 -rate=50.00 -packetSize=1450 -frequency=10 -duration=5s -btreeSize=2000 -debugLevel=3 -statsInterval=1]
-Start: 2025-12-27T17:47:51-08:00
-End: 2025-12-27T17:47:56-08:00
-Duration: 5.005870118s
+Start: 2026-01-17T23:29:48-08:00
+End: 2026-01-17T23:29:53-08:00
+Duration: 5.004795273s
 Exit Code: 0
 
 === STDOUT ===
 
 === STDERR ===
-2025/12/27 17:47:51 GOMAXPROCS: 24 (default)
-2025/12/27 17:47:51 Using retry strategy: SleepBackoff
-2025/12/27 17:47:51 Ring size auto-calculated: 512 (4 producers × 50.0 Mb/s, 10ms interval, 2.0x multiplier)
-2025/12/27 17:47:51 Starting: 4 producers @ 50.0 Mb/s, ring=512/4 shards, strategy=SleepBackoff, btree max=2000, consumer every 10ms
-2025/12/27 17:47:52 [stats] inserted=17260 trimmed=15260 rate=200.01 Mb/s btree=2000 ring=3/512 produced=17263 dropped=0
-2025/12/27 17:47:53 [stats] inserted=17232 trimmed=17232 rate=200.02 Mb/s btree=2000 ring=0/512 produced=34492 dropped=0
-2025/12/27 17:47:54 [stats] inserted=17252 trimmed=17252 rate=200.00 Mb/s btree=2000 ring=0/512 produced=51744 dropped=0
-2025/12/27 17:47:55 [stats] inserted=17244 trimmed=17244 rate=200.01 Mb/s btree=2000 ring=0/512 produced=68988 dropped=0
-2025/12/27 17:47:56 Duration 5s reached, shutting down...
-2025/12/27 17:47:56 [stats] inserted=17235 trimmed=17235 rate=200.00 Mb/s btree=2000 ring=0/512 produced=86223 dropped=0
-2025/12/27 17:47:56 Shutdown signal received, waiting for goroutines...
-2025/12/27 17:47:56 Clean shutdown completed in 174.438µs
-2025/12/27 17:47:56 === Final Statistics ===
-2025/12/27 17:47:56 Produced: 86224
-2025/12/27 17:47:56 Dropped:  0 (0.00%)
-2025/12/27 17:47:56 Consumed: 86224
-2025/12/27 17:47:56 Trimmed:  84223
-2025/12/27 17:47:56 BTree final size: 2001
+2026/01/17 23:29:48 GOMAXPROCS: 24 (default)
+2026/01/17 23:29:48 Using retry strategy: SleepBackoff
+2026/01/17 23:29:48 Ring size auto-calculated: 512 (4 producers × 50.0 Mb/s, 10ms interval, 2.0x multiplier)
+2026/01/17 23:29:48 Starting: 4 producers @ 50.0 Mb/s, ring=512/4 shards, strategy=SleepBackoff, btree max=2000, consumer every 10ms
+2026/01/17 23:29:49 [stats] inserted=17252 trimmed=15252 rate=200.03 Mb/s btree=2000 ring=0/512 produced=17252 dropped=0
+2026/01/17 23:29:50 [stats] inserted=17243 trimmed=17243 rate=199.99 Mb/s btree=2000 ring=1/512 produced=34496 dropped=0
+2026/01/17 23:29:51 [stats] inserted=17245 trimmed=17245 rate=199.98 Mb/s btree=2000 ring=3/512 produced=51743 dropped=0
+2026/01/17 23:29:52 [stats] inserted=17232 trimmed=17232 rate=200.03 Mb/s btree=2000 ring=0/512 produced=68972 dropped=0
+2026/01/17 23:29:53 Duration 5s reached, shutting down...
+2026/01/17 23:29:53 Shutdown signal received, waiting for goroutines...
+2026/01/17 23:29:53 Clean shutdown completed in 93.756µs
+2026/01/17 23:29:53 === Final Statistics ===
+2026/01/17 23:29:53 Produced: 86212
+2026/01/17 23:29:53 Dropped:  0 (0.00%)
+2026/01/17 23:29:53 Consumed: 86212
+2026/01/17 23:29:53 Trimmed:  84212
+2026/01/17 23:29:53 BTree final size: 2000

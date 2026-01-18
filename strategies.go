@@ -217,4 +217,92 @@ func writeWithHybrid(r *ShardedRing, producerID uint64, value any, config *Write
 	}
 }
 
+// =============================================================================
+// AutoAdaptive Strategy - High-Throughput with CPU-Friendly Idle
+// =============================================================================
 
+// writeWithAutoAdaptive implements automatic mode switching between Yield and Sleep.
+//
+// Design:
+//   - Starts in YIELD mode (runtime.Gosched) for maximum throughput
+//   - Switches to SLEEP mode after sustained idle period (AdaptiveIdleIterations)
+//   - Immediately wakes to YIELD mode on any successful write
+//   - Uses warmup period after success to prevent mode flapping
+//
+// Key optimization: Uses iteration counting instead of time.Now() calls.
+// time.Now() costs ~20-50ns per call, which would halve throughput on the hot path.
+// Iteration-based detection achieves the same goal with zero overhead on success.
+//
+// Mode transition logic:
+//   - On SUCCESS: Reset to Yield mode, set warmup period
+//   - During warmup: Stay in Yield, don't count toward idle
+//   - After warmup expires: Start counting idle iterations
+//   - After IdleIterations reached: Switch to Sleep mode
+//
+// This provides high throughput when active while being CPU-friendly when idle.
+func writeWithAutoAdaptive(r *ShardedRing, producerID uint64, value any, config *WriteConfig, state *writerState) bool {
+	shard := r.selectShard(producerID)
+
+	// Get idle threshold in iterations (default 100k - conservative)
+	idleIterations := config.AdaptiveIdleIterations
+	if idleIterations == 0 {
+		idleIterations = 100000
+	}
+
+	// Get warmup iterations (default 1k)
+	warmupIterations := config.AdaptiveWarmupIterations
+	if warmupIterations == 0 {
+		warmupIterations = 1000
+	}
+
+	// Get sleep duration (default 100µs)
+	sleepDuration := config.AdaptiveSleepDuration
+	if sleepDuration == 0 {
+		sleepDuration = 100 * time.Microsecond
+	}
+
+	for {
+		// Try MaxRetries times
+		for retry := 0; retry < config.MaxRetries; retry++ {
+			if shard.write(value) {
+				// SUCCESS! Reset to high-performance mode with warmup period
+				// This prevents immediate sleep after a single success in bursty traffic
+				state.idleIterations = 0
+				state.warmupRemaining = warmupIterations
+				state.adaptiveMode = AdaptiveModeYield
+				return true
+			}
+		}
+
+		// Failed to write - backoff based on current mode
+		state.backoffCount++
+		if config.MaxBackoffs > 0 && state.backoffCount >= config.MaxBackoffs {
+			return false
+		}
+
+		switch state.adaptiveMode {
+		case AdaptiveModeYield:
+			// Check warmup period first (anti-flap mechanism)
+			if state.warmupRemaining > 0 {
+				state.warmupRemaining--
+				// During warmup, just yield without counting toward idle
+				runtime.Gosched()
+				continue
+			}
+
+			// Warmup expired - count toward idle threshold
+			state.idleIterations++
+			if state.idleIterations > idleIterations {
+				// Sustained idle detected - switch to sleep mode
+				state.adaptiveMode = AdaptiveModeSleep
+			}
+			// Yield - cooperative scheduling, very fast
+			runtime.Gosched()
+
+		case AdaptiveModeSleep:
+			// In sleep mode - sleep for short duration
+			// First successful write will wake us back to yield mode
+			time.Sleep(sleepDuration)
+		}
+	}
+}

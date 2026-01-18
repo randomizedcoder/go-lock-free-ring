@@ -18,6 +18,7 @@ func BenchmarkWriterStrategy(b *testing.B) {
 		NextShard,
 		RandomShard,
 		SpinThenYield,
+		AutoAdaptive,
 	}
 
 	for _, strategy := range strategies {

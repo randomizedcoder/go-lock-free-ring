@@ -5,7 +5,8 @@ A high-performance, lock-free, sharded MPSC (Multi-Producer, Single-Consumer) ri
 **Key Features:**
 - Lock-free design using atomic operations (no mutexes)
 - Sharded architecture to minimize producer contention
-- **6 configurable retry strategies** for different load scenarios
+- **7 configurable retry strategies** for different load scenarios
+- **AutoAdaptive mode**: automatically switches between high-throughput Yield and CPU-friendly Sleep
 - Zero-allocation steady-state with `sync.Pool` integration
 - Tested up to 2300+ Mb/s sustained throughput ( Ryzen Threadripper PRO 3945W )
 - Comprehensive benchmarks and profiling
@@ -533,18 +534,24 @@ When a shard is full, the ring buffer supports multiple retry strategies. Each s
 | **AdaptiveBackoff** | Exponential backoff with jitter on same shard. Graceful degradation under load. |
 | **SpinThenYield** | Yield processor (`runtime.Gosched()`) instead of sleeping. Lowest latency, highest CPU. |
 | **Hybrid** | Combines NextShard traversal with AdaptiveBackoff. For complex scenarios. |
+| **AutoAdaptive** ⭐ | **Starts in Yield mode for high throughput (~6M ops/sec), automatically relaxes to Sleep after idle threshold.** Best for high-throughput scenarios that also need CPU-friendliness when idle. |
 
 #### Strategy Selection Guide
 
-| Scenario | Recommended | Why |
-|----------|-------------|-----|
-| **General purpose** | `SleepBackoff` | Most robust, works well in most conditions |
-| **High throughput (>800 Mb/s)** | `SleepBackoff` or `AdaptiveBackoff` | Best throughput under sustained load |
-| **Low latency, light load** | `SpinThenYield` | Minimal latency when ring rarely fills |
-| **Uneven producer distribution** | `NextShard` | Finds available shards faster |
-| **Bursty traffic** | `AdaptiveBackoff` | Exponential backoff handles bursts gracefully |
+**`AutoAdaptive` is the default strategy** - it provides high performance when active and automatically reduces CPU usage when idle.
+
+| Scenario | Recommended Config | Why |
+|----------|-------------------|-----|
+| **General purpose** | `DefaultWriteConfig()` | AutoAdaptive: fast by default, CPU-friendly when idle |
+| **Maximum throughput** | `HighThroughputConfig()` | Stays in Yield mode longer, slower to enter sleep |
+| **Minimum latency** | `LowLatencyConfig()` | Pure SpinThenYield, never sleeps |
+| **Battery/shared CPU** | `CPUFriendlyConfig()` | Quick to enter sleep mode |
+| **Bursty workloads** | `BurstyTrafficConfig()` | Long warmup period between bursts |
+| **Legacy behavior** | `LegacySleepConfig()` | Original SleepBackoff strategy |
 
 ⚠️ **Avoid `NextShard` under extreme load** - When all shards are saturated, the overhead of iterating through shards hurts performance significantly.
+
+💡 **Why AutoAdaptive?** At high rates, `time.Sleep()` becomes a bottleneck (~1ms minimum granularity). `runtime.Gosched()` (Yield) achieves ~25M ops/sec. AutoAdaptive automatically uses Yield when active and only sleeps after sustained idle periods.
 
 #### Performance Analysis
 
@@ -575,9 +582,29 @@ writer := ring.NewWriter(ring, producerID, config)
 for {
     writer.Write(value)  // No strategy switch on hot path
 }
+
+// Method 3: Use presets for common scenarios
+config := ring.DefaultWriteConfig()      // AutoAdaptive (recommended)
+config := ring.HighThroughputConfig()    // More aggressive Yield mode
+config := ring.LowLatencyConfig()        // Pure SpinThenYield (never sleeps)
+config := ring.CPUFriendlyConfig()       // Quick to sleep when idle
+config := ring.BurstyTrafficConfig()     // Long warmup for bursty loads
+config := ring.LegacySleepConfig()       // Original SleepBackoff behavior
+
+// Method 4: Custom AutoAdaptive configuration
+config := ring.WriteConfig{
+    Strategy:                 ring.AutoAdaptive,
+    MaxRetries:               10,
+    MaxBackoffs:              0,      // Unlimited
+    AdaptiveIdleIterations:   50000,  // Iterations before sleep mode
+    AdaptiveWarmupIterations: 2000,   // Stay fast after each success
+    AdaptiveSleepDuration:    50 * time.Microsecond,
+}
 ```
 
 The `Writer` type resolves the strategy function at creation time, avoiding a switch statement on every write. This is the recommended approach for high-performance scenarios.
+
+**The default (`DefaultWriteConfig()`) now uses AutoAdaptive** - high-performance by default, automatically CPU-friendly when idle. Use `HighThroughputConfig()` for even more aggressive performance tuning.
 
 ### Configuration Recommendations
 
@@ -618,7 +645,11 @@ The ring library includes comprehensive tests that verify correctness under vari
 | `TestDefaultWriteConfig` | Default configuration values |
 | `TestRetryStrategyString` | Strategy enum string conversion |
 | `TestNewWriter` | Writer creation and basic functionality |
-| `TestWriterStrategies` | All 6 retry strategies under normal load |
+| `TestWriterStrategies` | All 7 retry strategies under normal load |
+| `TestHighThroughputConfig` | HighThroughputConfig preset validation |
+| `TestAutoAdaptiveHighThroughput` | AutoAdaptive achieves high throughput |
+| `TestAutoAdaptiveModeTransition` | Mode transitions between Yield and Sleep |
+| `TestAutoAdaptiveConcurrent` | Concurrent writes with AutoAdaptive strategy |
 | `TestNextShardFallback` | NextShard falls back when primary shard full |
 | `TestWriterConcurrent` | Concurrent writes with different strategies |
 | `TestWriterReset` | Writer state reset functionality |
@@ -985,8 +1016,8 @@ go-lock-free-ring/
 | Component | Description |
 |-----------|-------------|
 | **ring.go** | Core types: `ShardedRing`, `Shard`, `slot`, basic `Write`/`TryRead` operations |
-| **writer.go** | `Writer` type for optimized writes, `WriteConfig`, retry strategy definitions |
-| **strategies.go** | All 6 retry strategy implementations |
+| **writer.go** | `Writer` type for optimized writes, `WriteConfig`, retry strategy definitions, `HighThroughputConfig()` preset |
+| **strategies.go** | All 7 retry strategy implementations including AutoAdaptive |
 | **cmd/ring/** | Example application: multiple producers generate packets at configurable rates, single consumer drains into a B-tree |
 | **data-generator/** | Utilities for rate-limited data generation (packets/second) |
 | **integration-tests/** | Automated testing with various configurations, strategy comparison, and profiling support |

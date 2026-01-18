@@ -161,6 +161,7 @@ func TestRetryStrategyString(t *testing.T) {
 		{AdaptiveBackoff, "AdaptiveBackoff"},
 		{SpinThenYield, "SpinThenYield"},
 		{Hybrid, "Hybrid"},
+		{AutoAdaptive, "AutoAdaptive"},
 		{RetryStrategy(99), "Unknown"},
 	}
 
@@ -216,6 +217,7 @@ func TestWriterStrategies(t *testing.T) {
 		AdaptiveBackoff,
 		SpinThenYield,
 		Hybrid,
+		AutoAdaptive,
 	}
 
 	for _, strategy := range strategies {
@@ -313,6 +315,7 @@ func TestWriterConcurrent(t *testing.T) {
 		SleepBackoff,
 		NextShard,
 		SpinThenYield,
+		AutoAdaptive,
 	}
 
 	for _, strategy := range strategies {
@@ -412,8 +415,9 @@ func TestWriterReset(t *testing.T) {
 func TestDefaultWriteConfigWithStrategy(t *testing.T) {
 	config := DefaultWriteConfig()
 
-	if config.Strategy != SleepBackoff {
-		t.Errorf("Default Strategy = %v, want SleepBackoff", config.Strategy)
+	// Default is now AutoAdaptive for high-performance by default
+	if config.Strategy != AutoAdaptive {
+		t.Errorf("Default Strategy = %v, want AutoAdaptive", config.Strategy)
 	}
 	if config.MaxRetries != 10 {
 		t.Errorf("Default MaxRetries = %d, want 10", config.MaxRetries)
@@ -429,6 +433,58 @@ func TestDefaultWriteConfigWithStrategy(t *testing.T) {
 	}
 	if config.BackoffMultiplier != 2.0 {
 		t.Errorf("Default BackoffMultiplier = %v, want 2.0", config.BackoffMultiplier)
+	}
+	// AutoAdaptive-specific defaults
+	if config.AdaptiveIdleIterations != 100000 {
+		t.Errorf("Default AdaptiveIdleIterations = %d, want 100000", config.AdaptiveIdleIterations)
+	}
+	if config.AdaptiveWarmupIterations != 1000 {
+		t.Errorf("Default AdaptiveWarmupIterations = %d, want 1000", config.AdaptiveWarmupIterations)
+	}
+	if config.AdaptiveSleepDuration != 100*time.Microsecond {
+		t.Errorf("Default AdaptiveSleepDuration = %v, want 100µs", config.AdaptiveSleepDuration)
+	}
+}
+
+// TestConfigPresets tests the various configuration presets
+func TestConfigPresets(t *testing.T) {
+	// Test HighThroughputConfig
+	ht := HighThroughputConfig()
+	if ht.Strategy != AutoAdaptive {
+		t.Errorf("HighThroughputConfig Strategy = %v, want AutoAdaptive", ht.Strategy)
+	}
+	if ht.AdaptiveIdleIterations != 500000 {
+		t.Errorf("HighThroughputConfig AdaptiveIdleIterations = %d, want 500000", ht.AdaptiveIdleIterations)
+	}
+
+	// Test LowLatencyConfig
+	ll := LowLatencyConfig()
+	if ll.Strategy != SpinThenYield {
+		t.Errorf("LowLatencyConfig Strategy = %v, want SpinThenYield", ll.Strategy)
+	}
+
+	// Test CPUFriendlyConfig
+	cf := CPUFriendlyConfig()
+	if cf.Strategy != AutoAdaptive {
+		t.Errorf("CPUFriendlyConfig Strategy = %v, want AutoAdaptive", cf.Strategy)
+	}
+	if cf.AdaptiveIdleIterations != 10000 {
+		t.Errorf("CPUFriendlyConfig AdaptiveIdleIterations = %d, want 10000", cf.AdaptiveIdleIterations)
+	}
+
+	// Test BurstyTrafficConfig
+	bt := BurstyTrafficConfig()
+	if bt.Strategy != AutoAdaptive {
+		t.Errorf("BurstyTrafficConfig Strategy = %v, want AutoAdaptive", bt.Strategy)
+	}
+	if bt.AdaptiveWarmupIterations != 10000 {
+		t.Errorf("BurstyTrafficConfig AdaptiveWarmupIterations = %d, want 10000", bt.AdaptiveWarmupIterations)
+	}
+
+	// Test LegacySleepConfig
+	ls := LegacySleepConfig()
+	if ls.Strategy != SleepBackoff {
+		t.Errorf("LegacySleepConfig Strategy = %v, want SleepBackoff", ls.Strategy)
 	}
 }
 
